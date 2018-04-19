@@ -4,14 +4,20 @@ Notice: No warranty is offered or implied; use this code at your own risk.
 *******************************************************************************/
 
 #include "stdio.h"
+
+#include "SDL/SDL.h"
+#include "SDL/SDL_ttf.h"
+#undef main
+
 #include "libavcodec/avcodec.h"
 #include "libswscale/swscale.h"
 
 #define ERROR(E) do { fprintf(stderr, "Error: " E "\n"); exit(1); } while (0)
+#define VidWidth 1280
+#define VidHeight 720
 
 static void frame_convert_test(struct SwsContext *context,
-                               AVFrame *src, AVFrame *dst,
-                               AVPacket *packet)
+                               AVFrame *src, AVFrame *dst)
 {
     sws_scale(context, src->data, src->linesize, 0, src->height,
               dst->data, dst->linesize);
@@ -37,6 +43,36 @@ static void frame_encode_test(AVCodecContext *context,
 }
 
 static void video_encode_test(char * filename) {
+    // 
+    // Rendering Setup
+    // 
+    
+    if (SDL_Init(SDL_INIT_EVERYTHING) != 0) ERROR("initialization failed (SDL)!");
+    if (TTF_Init() != 0) ERROR("initialization failed (TTF)!");
+    
+    SDL_Window *window = SDL_CreateWindow(
+        "Hello, SDL!",
+        SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED,
+        VidWidth, VidHeight, 0);
+    if (window == NULL) ERROR("failed to create window!");
+    
+    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if (renderer == NULL) ERROR("failed to create renderer!");
+    
+    SDL_Texture *text = NULL;
+    TTF_Font *font = TTF_OpenFont("Oswald-Bold.ttf", 48);
+    
+    SDL_Texture *vid_frame_texture = SDL_CreateTexture(
+        renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_TARGET,
+        VidWidth, VidHeight);
+    if (vid_frame_texture == NULL) ERROR("failed to create render target!");
+    
+    // 
+    // Video Encoding Setup
+    // 
+    
     avcodec_register_all();
     
     AVCodec *codec = avcodec_find_encoder(AV_CODEC_ID_MPEG1VIDEO);
@@ -47,8 +83,8 @@ static void video_encode_test(char * filename) {
     
     { // Set codec parameters:
         cdc_ctx->bit_rate = 400000;
-        cdc_ctx->width  = 1280;
-        cdc_ctx->height = 720;
+        cdc_ctx->width  = VidWidth;
+        cdc_ctx->height = VidHeight;
         cdc_ctx->time_base = (AVRational){1, 60};
         cdc_ctx->framerate = (AVRational){60, 1};
         
@@ -61,7 +97,7 @@ static void video_encode_test(char * filename) {
     
     AVFrame  *src_frame  = av_frame_alloc();
     if (!src_frame) ERROR("failed to allocate an AVFrame!");
-    src_frame->format = AV_PIX_FMT_RGB24;
+    src_frame->format = AV_PIX_FMT_RGB32;
     src_frame->width  = cdc_ctx->width;
     src_frame->height = cdc_ctx->height;
     if (av_frame_get_buffer(src_frame, 32) < 0) ERROR("failed to get frame buffer!");
@@ -88,34 +124,70 @@ static void video_encode_test(char * filename) {
         exit(1);
     }
     
+    // 
+    // Main Loop
+    // 
+    
     // 60 frames for one second of footage
-    for (int i = 0; i < 60; ++i) {
-        printf("Encoding frame %2d/60 ...\r", i);
-        fflush(stdout);
+    for (int i = 0; i < 240; ++i) {
+        char t = (char)((float)i / 240.0f * 255);
         
-        int ret = av_frame_make_writable(src_frame);
-        if (ret < 0) {
-            fprintf(stderr, "Error: failed to generate frame!\nAVERROR %d: %s\n",
-                    ret, av_err2str(ret));
-            exit(1);
+        SDL_Event e;
+        if (SDL_PollEvent(&e)) {
+            if (e.type == SDL_QUIT) break;
+            if (e.type == SDL_KEYUP && e.key.keysym.sym == SDLK_ESCAPE) break;
         }
         
-        char t = (char)((float)i / 60.0f * 255);
-        for (int y = 0; y < cdc_ctx->height; ++y) {
-            for (int x = 0; x < cdc_ctx->width; ++x) {
-                src_frame->data[0][y * src_frame->linesize[0] + 3*x + 0] = t;
-                src_frame->data[0][y * src_frame->linesize[0] + 3*x + 1] = 0;
-                src_frame->data[0][y * src_frame->linesize[0] + 3*x + 2] = t;
+        { // Render Text
+            SDL_Surface *surf = TTF_RenderText_Solid(
+                font, "Hello, World!", (SDL_Color){ 0, t, t, 255 });
+            text = SDL_CreateTextureFromSurface(renderer, surf);
+            
+            SDL_FreeSurface(surf);
+        }
+        
+        int w, h;
+        SDL_QueryTexture(text, NULL, NULL, &w, &h);
+        SDL_Rect dst_rect = (SDL_Rect){ VidWidth/2 - w/2, VidHeight/2 - h/2, w, h }; 
+        
+        SDL_SetRenderTarget(renderer, vid_frame_texture);
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, text, NULL, &dst_rect);
+        
+        { // Encode content of the current render target
+            printf("Encoding frame %2d/240 ...\r", i);
+            fflush(stdout);
+            
+            int ret = av_frame_make_writable(src_frame);
+            if (ret < 0) {
+                fprintf(stderr, "Error: failed to generate frame!\nAVERROR %d: %s\n",
+                        ret, av_err2str(ret));
+                exit(1);
             }
+            
+            SDL_RenderReadPixels(renderer, NULL, 0,
+                                 src_frame->data[0],
+                                 src_frame->linesize[0]);
+            src_frame->pts = i;
+            
+            frame_convert_test(sws_ctx, src_frame, dst_frame);
+            frame_encode_test(cdc_ctx, dst_frame, packet, f);
         }
         
-        src_frame->pts = i;
-        
-        frame_convert_test(sws_ctx, src_frame, dst_frame, packet);
-        frame_encode_test(cdc_ctx, dst_frame, packet, f);
+        SDL_SetRenderTarget(renderer, NULL);
+        SDL_RenderClear(renderer);
+        if (SDL_RenderCopy(renderer, vid_frame_texture, NULL, NULL)) {
+            printf("\nSomething happened here!\n");
+        }
+        SDL_RenderCopy(renderer, text, NULL, &(SDL_Rect){ 0, 0, w/2, h/2 });
+        SDL_RenderPresent(renderer);
     }
     
-    printf("DONE.                   ");
+    // 
+    // Final Touches
+    // 
+    
+    printf("DONE.                     ");
     fflush(stdout);
     
     frame_encode_test(cdc_ctx, NULL, packet, f); // flush the encoder
@@ -129,6 +201,12 @@ static void video_encode_test(char * filename) {
     av_packet_free(&packet);
     avcodec_free_context(&cdc_ctx);
     sws_freeContext(sws_ctx);
+    
+    TTF_CloseFont(font);
+    SDL_DestroyTexture(text);
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
 }
 
 int main(int argc, char *argv[]) {
