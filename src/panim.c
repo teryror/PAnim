@@ -131,16 +131,16 @@ static void video_encode_test(char * filename) {
     // 60 frames for one second of footage
     for (int i = 0; i < 240; ++i) {
         char t = (char)((float)i / 240.0f * 255);
-        
+        /*
         SDL_Event e;
         if (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) break;
             if (e.type == SDL_KEYUP && e.key.keysym.sym == SDLK_ESCAPE) break;
         }
-        
+        */
         { // Render Text
             SDL_Surface *surf = TTF_RenderText_Solid(
-                font, "Hello, World!", (SDL_Color){ 0, t, t, 255 });
+                font, "Hello, World!", (SDL_Color){ t, t, t, 255 });
             text = SDL_CreateTextureFromSurface(renderer, surf);
             
             SDL_FreeSurface(surf);
