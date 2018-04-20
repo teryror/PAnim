@@ -17,8 +17,8 @@ now.
 ## Development Plan
 
 The basic idea is to use [SDL2](https://www.libsdl.org/) to render animations
-to a window, and every frame, grab the image data and send it to [libavcodec]
-(https://ffmpeg.org/) for encoding.
+to a window, and every frame, grab the image data and send it to
+[libavcodec](https://ffmpeg.org/) for encoding.
 
 The animation engine itself will likely break into two parts:
 
