@@ -10,12 +10,11 @@ Notice: No warranty is offered or implied; use this code at your own risk.
 #include "SDL/SDL_ttf.h"
 #undef main
 
+#include "libavformat/avformat.h"
 #include "libavcodec/avcodec.h"
 #include "libswscale/swscale.h"
 
 #define ERROR(E) do { fprintf(stderr, "Error: " E "\n"); exit(1); } while (0)
-#define VidWidth 1280
-#define VidHeight 720
 
 typedef struct {
     size_t length_in_frames;
@@ -59,6 +58,7 @@ panim_engine_begin_preview(PAnimEngine * pnm, PAnimScene * scene)
 static void
 panim_engine_end_preview(PAnimEngine * pnm)
 {
+    SDL_DestroyTexture(pnm->render_target);
     SDL_DestroyRenderer(pnm->renderer);
     SDL_DestroyWindow(pnm->window);
     SDL_Quit();
@@ -99,6 +99,23 @@ panim_frame_present(PAnimEngine * pnm)
     SDL_RenderPresent(pnm->renderer);
 }
 
+static AVFrame *
+panim_alloc_avframe(enum AVPixelFormat pix_fmt, int width, int height)
+{
+    AVFrame *result = av_frame_alloc();
+    if (!result) ERROR("failed to allocate an AVFrame!");
+    
+    result->format = pix_fmt;
+    result->width  = width;
+    result->height = height;
+    
+    if (av_frame_get_buffer(result, 32) < 0) {
+        ERROR("failed to get frame buffer!");
+    }
+    
+    return result;
+}
+
 /* 
  * Plays back the scene in a preview window while also rendering it to a file.
  */
@@ -112,41 +129,62 @@ panim_scene_render(PAnimScene * scene, char * filename)
     // Video Encoding Setup
     // 
     
+    av_register_all();
     avcodec_register_all();
     
-    AVCodec *codec = avcodec_find_encoder(AV_CODEC_ID_MPEG1VIDEO);
+    AVFormatContext *fmt_ctx = NULL;
+    avformat_alloc_output_context2(&fmt_ctx, NULL, "mp4", filename);
+    if (!fmt_ctx) ERROR("failed to allocate an AVFormatContext");
+    
+    AVOutputFormat *fmt = fmt_ctx->oformat;
+    fmt->video_codec = AV_CODEC_ID_H264;
+    fmt->audio_codec = AV_CODEC_ID_NONE;
+    
+    AVCodec *codec = avcodec_find_encoder(fmt->video_codec);
     if (!codec) ERROR("codec not found!");
     
-    AVCodecContext *cdc_ctx = avcodec_alloc_context3(codec);
-    if (!cdc_ctx) ERROR("failed to allocate an AVCodecContext!");
+    AVStream *stream = avformat_new_stream(fmt_ctx, codec);
+    if (!stream) ERROR("failed to add video stream to container!");
+    stream->id = fmt_ctx->nb_streams - 1;
     
+    AVCodecContext *cdc_ctx = stream->codec;
     { // Set codec parameters:
-        cdc_ctx->bit_rate = 400000;
-        cdc_ctx->width  = VidWidth;
-        cdc_ctx->height = VidHeight;
+        // TODO: specifying codec parameters like this is deprecated,
+        // you're supposed to use stream->codecpar, apparently, but I don't see
+        // how you'd specify most of these on that
+        
+        // TODO: codec-specific options (lossless?, CABAC?)
+        // I think you need to pass an AVOptions thing as the 3rd arg to
+        // avcodec_open2, but I can't seem to find out how to actually make one?
+        
+        cdc_ctx->width  = scene->screen_width;
+        cdc_ctx->height = scene->screen_height;
+        
+        // I don't know why you're supposed to do this, since avformat_write_header
+        // overwrites it with some ridiculous value later on, which is why we need
+        // to rescale our packets' timestamps in the main loop.
+        stream->time_base = (AVRational){1, 60};
+        
         cdc_ctx->time_base = (AVRational){1, 60};
         cdc_ctx->framerate = (AVRational){60, 1};
         
-        cdc_ctx->gop_size = 10; // 1 intra frame every 10 frames
-        cdc_ctx->max_b_frames = 1;
+        // YouTube recommends GOP of half the frame rate,
+        // i.e. at most one intra frame every thirty frames
+        cdc_ctx->gop_size = 30;
+        cdc_ctx->max_b_frames = 2;
         cdc_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+        cdc_ctx->bit_rate = 12000000; // Recommended bitrate for 1080p60 SDR
+        
+        if (fmt->flags & AVFMT_GLOBALHEADER)
+            cdc_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     }
     
     if (avcodec_open2(cdc_ctx, codec, NULL) < 0) ERROR("failed to open codec!");
     
-    AVFrame  *src_frame  = av_frame_alloc();
-    if (!src_frame) ERROR("failed to allocate an AVFrame!");
-    src_frame->format = AV_PIX_FMT_RGB32;
-    src_frame->width  = cdc_ctx->width;
-    src_frame->height = cdc_ctx->height;
-    if (av_frame_get_buffer(src_frame, 32) < 0) ERROR("failed to get frame buffer!");
-    
-    AVFrame  *dst_frame  = av_frame_alloc();
-    if (!dst_frame) ERROR("failed to allocate an AVFrame!");
-    dst_frame->format = cdc_ctx->pix_fmt;
-    dst_frame->width  = cdc_ctx->width;
-    dst_frame->height = cdc_ctx->height;
-    if (av_frame_get_buffer(dst_frame, 32) < 0) ERROR("failed to get frame buffer!");
+    AVFrame *src_frame = panim_alloc_avframe(
+        AV_PIX_FMT_RGB32, cdc_ctx->width, cdc_ctx->height);
+    AVFrame *dst_frame = panim_alloc_avframe(
+        cdc_ctx->pix_fmt, cdc_ctx->width, cdc_ctx->height);
     
     struct SwsContext *sws_ctx = sws_getContext(
         src_frame->width, src_frame->height, src_frame->format,
@@ -157,10 +195,15 @@ panim_scene_render(PAnimScene * scene, char * filename)
     AVPacket *packet = av_packet_alloc();
     if (!packet) ERROR("failed to allocate an AVPacket!");
     
-    FILE *f = fopen(filename, "wb");
-    if (!f) {
-        printf("Error: failed to open file '%s'!\n", filename);
-        exit(1);
+    // Open the output file if needed
+    if (!(fmt->flags & AVFMT_NOFILE)) {
+        if (avio_open(&fmt_ctx->pb, filename, AVIO_FLAG_WRITE) < 0) {
+            ERROR("failed to open output file!");
+        }
+    }
+    
+    if (avformat_write_header(fmt_ctx, NULL) < 0) {
+        ERROR("failed to write file header!");
     }
     
     // 
@@ -171,26 +214,19 @@ panim_scene_render(PAnimScene * scene, char * filename)
         panim_scene_frame_update(scene, t);
         panim_scene_frame_render(&pnm, scene);
         
-        { // Get backbuffer contents
-            fflush(stdout);
-            
-            int ret = av_frame_make_writable(src_frame);
-            if (ret < 0) {
-                fprintf(stderr, "Error: failed to generate frame!\nAVERROR %d: %s\n",
-                        ret, av_err2str(ret));
-                exit(1);
-            }
-            
-            SDL_RenderReadPixels(pnm.renderer, NULL, 0,
-                                 src_frame->data[0],
-                                 src_frame->linesize[0]);
-            src_frame->pts = t;
-        }
+        // Get backbuffer contents
+        fflush(stdout);
+        if (av_frame_make_writable(src_frame) < 0)
+            ERROR("failed to lock frame buffer!");
+        SDL_RenderReadPixels(pnm.renderer, NULL, 0,
+                             src_frame->data[0],
+                             src_frame->linesize[0]);
         
         // Convert between pixel formats (color spaces)
         sws_scale(sws_ctx,
                   src_frame->data, src_frame->linesize, 0, src_frame->height,
                   dst_frame->data, dst_frame->linesize);
+        dst_frame->pts = t;
         
         { // Send frame for encoding
             int ret = avcodec_send_frame(cdc_ctx, dst_frame);
@@ -199,49 +235,53 @@ panim_scene_render(PAnimScene * scene, char * filename)
             while (ret >= 0) {
                 ret = avcodec_receive_packet(cdc_ctx, packet);
                 if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                    // TODO: This is triggered for the first 45 frames or so,
+                    // TODO: This is triggered for the first 45 frames or so,
+                    // TODO: This is triggered for the first 45 frames or so,
+                    // TODO: This is triggered for the first 45 frames or so,
+                    // TODO: This is triggered for the first 45 frames or so,
+                    // TODO: This is triggered for the first 45 frames or so,
+                    // without ever writing _any_ packets, causing us to lose a
+                    // few frames of video. REALLY BAD.
                     break;
                 } else if (ret < 0) ERROR("error during encoding!");
                 
-                fwrite(packet->data, 1, packet->size, f);
+                packet->stream_index = stream->index;
+                if (packet->pts != AV_NOPTS_VALUE)
+                    packet->pts = av_rescale_q(packet->pts, cdc_ctx->time_base, stream->time_base);
+                if (packet->dts != AV_NOPTS_VALUE)
+                    packet->dts = av_rescale_q(packet->dts, cdc_ctx->time_base, stream->time_base);
+                
+                if (av_interleaved_write_frame(fmt_ctx, packet) < 0) {
+                    ERROR("failed to write frame to stream");
+                }
+                
                 av_packet_unref(packet);
             }
         }
         
+        //---
         panim_frame_present(&pnm);
     }
     
-    { // Flush the encoder
-        fflush(stdout);
-        int ret = avcodec_send_frame(cdc_ctx, NULL);
-        if (ret < 0) ERROR("failed to send frame for encoding!");
-        
-        while (ret >= 0) {
-            ret = avcodec_receive_packet(cdc_ctx, packet);
-            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-                break;
-            } else if (ret < 0) ERROR("error during encoding!");
-            
-            fwrite(packet->data, 1, packet->size, f);
-            av_packet_unref(packet);
-        }
-    }
+    av_write_trailer(fmt_ctx);
     
-    uint8_t endcode[] = { 0, 0, 1, 0xb7 };
-    fwrite(endcode, 1, sizeof(endcode), f);
-    fclose(f);
-    
+    // Close the output stream
+    avcodec_close(stream->codec);
     av_frame_free(&src_frame);
     av_frame_free(&dst_frame);
-    av_packet_free(&packet);
-    avcodec_free_context(&cdc_ctx);
     sws_freeContext(sws_ctx);
     
+    if (!(fmt->flags & AVFMT_NOFILE)) avio_closep(&fmt_ctx->pb);
+    avformat_free_context(fmt_ctx);
+    
+    //---
     panim_engine_end_preview(&pnm);
 }
 
 /* 
- * Plays back the scene in a preview window without rendering to a file.
- */
+* Plays back the scene in a preview window without rendering to a file.
+*/
 static void
 panim_scene_play(PAnimScene * scene)
 {
@@ -249,12 +289,16 @@ panim_scene_play(PAnimScene * scene)
     panim_engine_begin_preview(&pnm, scene);
     
     for (size_t t = 0; t < scene->length_in_frames; ++t) {
+        Uint32 ticks_at_start_of_frame = SDL_GetTicks();
+        
         panim_scene_frame_update(scene, t);
         panim_scene_frame_render(&pnm, scene);
         panim_frame_present(&pnm);
         
-        // TODO: Limit framerate for preview-only mode
-        SDL_Delay(15);
+        Uint32 frame_time = SDL_GetTicks() - ticks_at_start_of_frame;
+        if (frame_time < 16) {
+            SDL_Delay(16 - frame_time);
+        }
     }
     
     panim_engine_end_preview(&pnm);
