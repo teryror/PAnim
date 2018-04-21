@@ -116,6 +116,34 @@ panim_alloc_avframe(enum AVPixelFormat pix_fmt, int width, int height)
     return result;
 }
 
+static inline void
+panim_frame_encode(AVCodecContext * cdc_ctx,
+                   AVFormatContext * fmt_ctx, AVStream * stream,
+                   AVFrame * frame, AVPacket * packet)
+{
+    int ret = avcodec_send_frame(cdc_ctx, frame);
+    if (ret < 0) ERROR("failed to write frame!");
+    
+    while (ret >= 0) {
+        ret = avcodec_receive_packet(cdc_ctx, packet);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+            break;
+        } else if (ret < 0) ERROR("error during encoding!");
+        
+        packet->stream_index = stream->index;
+        if (packet->pts != AV_NOPTS_VALUE)
+            packet->pts = av_rescale_q(packet->pts, cdc_ctx->time_base, stream->time_base);
+        if (packet->dts != AV_NOPTS_VALUE)
+            packet->dts = av_rescale_q(packet->dts, cdc_ctx->time_base, stream->time_base);
+        
+        if (av_write_frame(fmt_ctx, packet) < 0) {
+            ERROR("failed to write frame to stream");
+        }
+        
+        av_packet_unref(packet);
+    }
+}
+
 /* 
  * Plays back the scene in a preview window while also rendering it to a file.
  */
@@ -228,42 +256,12 @@ panim_scene_render(PAnimScene * scene, char * filename)
                   dst_frame->data, dst_frame->linesize);
         dst_frame->pts = t;
         
-        { // Send frame for encoding
-            int ret = avcodec_send_frame(cdc_ctx, dst_frame);
-            if (ret < 0) ERROR("failed to send frame for encoding!");
-            
-            while (ret >= 0) {
-                ret = avcodec_receive_packet(cdc_ctx, packet);
-                if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-                    // TODO: This is triggered for the first 45 frames or so,
-                    // TODO: This is triggered for the first 45 frames or so,
-                    // TODO: This is triggered for the first 45 frames or so,
-                    // TODO: This is triggered for the first 45 frames or so,
-                    // TODO: This is triggered for the first 45 frames or so,
-                    // TODO: This is triggered for the first 45 frames or so,
-                    // without ever writing _any_ packets, causing us to lose a
-                    // few frames of video. REALLY BAD.
-                    break;
-                } else if (ret < 0) ERROR("error during encoding!");
-                
-                packet->stream_index = stream->index;
-                if (packet->pts != AV_NOPTS_VALUE)
-                    packet->pts = av_rescale_q(packet->pts, cdc_ctx->time_base, stream->time_base);
-                if (packet->dts != AV_NOPTS_VALUE)
-                    packet->dts = av_rescale_q(packet->dts, cdc_ctx->time_base, stream->time_base);
-                
-                if (av_interleaved_write_frame(fmt_ctx, packet) < 0) {
-                    ERROR("failed to write frame to stream");
-                }
-                
-                av_packet_unref(packet);
-            }
-        }
         
-        //---
+        panim_frame_encode(cdc_ctx, fmt_ctx, stream, dst_frame, packet);
         panim_frame_present(&pnm);
     }
     
+    panim_frame_encode(cdc_ctx, fmt_ctx, stream, NULL, packet); // Flush the encoder
     av_write_trailer(fmt_ctx);
     
     // Close the output stream
