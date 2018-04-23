@@ -6,6 +6,28 @@ Notice: No warranty is offered or implied; use this code at your own risk.
 #include "panim.h"
 #include "assert.h"
 
+typedef enum CodeTreeType {
+    CTT_INVALID,
+    CTT_INTERNAL,
+    CTT_LEAF,
+} CodeTreeType;
+
+typedef struct CodeTree {
+    CodeTreeType type;
+    int freq;
+    union {
+        char sym;
+        struct {
+            struct CodeTree * left;
+            struct CodeTree * right;
+        } children;
+    };
+} CodeTree;
+
+static SDL_Texture * circle;
+static TTF_Font    * font;
+static CodeTree    * huff;
+
 static void
 panim_scene_frame_update(PAnimScene * scene, size_t t)
 {
@@ -15,12 +37,88 @@ panim_scene_frame_update(PAnimScene * scene, size_t t)
 }
 
 static void
+render_tree(PAnimEngine * pnm,
+            CodeTree * tree,
+            SDL_Rect dst_range)
+{
+    if (tree->type == CTT_LEAF) {
+        SDL_Rect dst_rect = (SDL_Rect){
+            dst_range.x + dst_range.w  / 2 - 50,
+            dst_range.y, 100, 100,
+        };
+        SDL_RenderCopy(pnm->renderer, circle, NULL, &dst_rect);
+        
+        char lbl[2] = { tree->sym, 0 };
+        SDL_Surface *surf = TTF_RenderText_Solid(
+            font, lbl, (SDL_Color){ 255, 255, 255, 255 });
+        SDL_Texture *text = SDL_CreateTextureFromSurface(pnm->renderer, surf);
+        SDL_FreeSurface(surf);
+        
+        int w, h; SDL_QueryTexture(text, NULL, NULL, &w, &h);
+        dst_rect.x = dst_rect.x + dst_rect.w / 2 - w / 2;
+        dst_rect.y = dst_rect.y + dst_rect.h / 2 - h / 2;
+        dst_rect.w = w;
+        dst_rect.h = h;
+        
+        SDL_RenderCopy(pnm->renderer, text, NULL, &dst_rect);
+    } else if (tree->type == CTT_INTERNAL) {
+        SDL_SetRenderDrawColor(pnm->renderer, 204, 204, 204, 255);
+        
+        int x1 = dst_range.x + dst_range.w / 2;
+        int y1 = dst_range.y + 50;
+        SDL_RenderDrawLine(pnm->renderer, x1, y1, x1 - dst_range.w / 4, y1 + 100);
+        SDL_RenderDrawLine(pnm->renderer, x1, y1, x1 + dst_range.w / 4, y1 + 100);
+        
+        SDL_Rect dst_rect = (SDL_Rect){
+            dst_range.x + dst_range.w / 2 - 50,
+            dst_range.y, 100, 100,
+        };
+        SDL_RenderCopy(pnm->renderer, circle, NULL, &dst_rect);
+        
+        char lbl[4]; snprintf(lbl, 4, "%d", tree->freq);
+        SDL_Surface *surf = TTF_RenderText_Solid(
+            font, lbl, (SDL_Color){ 255, 255, 255, 255 });
+        SDL_Texture *text = SDL_CreateTextureFromSurface(pnm->renderer, surf);
+        SDL_FreeSurface(surf);
+        
+        int w, h; SDL_QueryTexture(text, NULL, NULL, &w, &h);
+        dst_rect.x = dst_rect.x + dst_rect.w / 2 - w / 2;
+        dst_rect.y = dst_rect.y + dst_rect.h / 2 - h / 2;
+        dst_rect.w = w;
+        dst_rect.h = h;
+        
+        SDL_RenderCopy(pnm->renderer, text, NULL, &dst_rect);
+        
+        SDL_Rect l_range = (SDL_Rect){
+            dst_range.x,
+            dst_range.y + 100,
+            dst_range.w / 2,
+            dst_range.h - 100,
+        }; render_tree(pnm, tree->children.left, l_range);
+        
+        SDL_Rect r_range = (SDL_Rect){
+            dst_range.x + dst_range.w / 2,
+            dst_range.y + 100,
+            dst_range.w / 2,
+            dst_range.h - 100,
+        }; render_tree(pnm, tree->children.right, r_range);
+    }
+}
+
+static void
 panim_scene_frame_render(PAnimEngine * pnm, PAnimScene * scene)
 {
     SDL_Color bg = scene->bg_color;
     SDL_SetRenderDrawColor(
         pnm->renderer, bg.r, bg.g, bg.b, bg.a);
     SDL_RenderClear(pnm->renderer);
+    
+    SDL_Rect dst_range = (SDL_Rect){
+        scene->screen_width  / 2 - 570,
+        scene->screen_height / 2 - 250,
+        1140, 500,
+    };
+    render_tree(pnm, huff, dst_range);
 }
 
 // Stretchy buffers, invented (?) by Sean Barrett, code adapted from
@@ -65,24 +163,6 @@ void *buf__grow(const void *buf, size_t new_len, size_t elem_size) {
 
 // -----------------------
 
-typedef enum CodeTreeType {
-    CTT_INVALID,
-    CTT_INTERNAL,
-    CTT_LEAF,
-} CodeTreeType;
-
-typedef struct CodeTree {
-    CodeTreeType type;
-    int freq;
-    union {
-        char sym;
-        struct {
-            struct CodeTree * left;
-            struct CodeTree * right;
-        } children;
-    };
-} CodeTree;
-
 static void print_tree(CodeTree *tree) {
     if (tree->type == CTT_LEAF) {
         printf("(%c %d)", tree->sym, tree->freq);
@@ -124,16 +204,16 @@ build_huff_tree(char * message) {
     }
     
     /*
-     * NOTICE: This is the worst possible implementation of Huffman's algorithm.
-     * 
-     * A serious attempt would at least use a heap (i.e. a priority queue) in place
-     * of a plain array and linear search to keep track of partial code trees.
-     * 
-     * It doesn't really matter for the animation, and this was the fastest to
-     * implement. The fastest to execute would use an entirely different alg anyway.
-     *
-     * ... also, we leak all the memory here.
-     */
+    * NOTICE: This is the worst possible implementation of Huffman's algorithm.
+    * 
+    * A serious attempt would at least use a heap (i.e. a priority queue) in place
+    * of a plain array and linear search to keep track of partial code trees.
+    * 
+    * It doesn't really matter for the animation, and this was the fastest to
+    * implement. The fastest to execute would use an entirely different alg anyway.
+    *
+    * ... also, we leak all the memory here.
+    */
     
     print_forest(forest);
     while (buf_len(forest) > 1) {
@@ -184,15 +264,19 @@ build_huff_tree(char * message) {
 }
 
 int main(int argc, char *argv[]) {
-    CodeTree * root = build_huff_tree("ABRACADABRA");
+    huff = build_huff_tree("ABRACADABRA");
     
     PAnimScene scene = {0};
-    scene.length_in_frames = 240;
+    scene.length_in_frames = 180;
     scene.screen_width  = 1280;
     scene.screen_height =  720;
     
+    PAnimEngine pnm = panim_engine_begin_preview(&scene);
+    circle = IMG_LoadTexture(pnm.renderer, "circle.png");
+    font   = TTF_OpenFont("bin/Oswald-Bold.ttf", 36);
+    
     if (argc == 1) {
-        panim_scene_play(&scene);
+        panim_scene_play(&pnm, &scene);
         return 0;
     } else if (argc != 2) {
         printf("Usage: panim <OutFile>\n");
@@ -200,7 +284,7 @@ int main(int argc, char *argv[]) {
     }
     
     char * filename = argv[1];
-    panim_scene_render(&scene, filename);
+    panim_scene_render(&pnm, &scene, filename);
     
     return 0;
 }

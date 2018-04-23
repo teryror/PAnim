@@ -1,5 +1,7 @@
 bin/
 !bin/*.dll
+!bin/*.png
+!bin/*.ttf
 
 *.pdb
 *.obj

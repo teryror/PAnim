@@ -7,6 +7,7 @@ Notice: No warranty is offered or implied; use this code at your own risk.
 #include "stdint.h"
 
 #include "SDL/SDL.h"
+#include "SDL/SDL_image.h"
 #include "SDL/SDL_ttf.h"
 #undef main
 
@@ -29,22 +30,25 @@ typedef struct {
     SDL_Renderer * renderer;
 } PAnimEngine;
 
-static void
-panim_engine_begin_preview(PAnimEngine * pnm, PAnimScene * scene)
+static PAnimEngine
+panim_engine_begin_preview(PAnimScene * scene)
 {
     if (SDL_Init(SDL_INIT_EVERYTHING) != 0) ERROR("initialization failed (SDL)!");
     if (TTF_Init() != 0) ERROR("initialization failed (TTF)!");
     
-    pnm->window = SDL_CreateWindow(
+    PAnimEngine pnm = {0};
+    pnm.window = SDL_CreateWindow(
         "Hello, SDL!",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         scene->screen_width,
         scene->screen_height, 0);
-    if (pnm->window == NULL) ERROR("failed to create window!");
+    if (pnm.window == NULL) ERROR("failed to create window!");
     
-    pnm->renderer = SDL_CreateRenderer(pnm->window, -1, SDL_RENDERER_ACCELERATED);
-    if (pnm->renderer == NULL) ERROR("failed to create renderer!");
+    pnm.renderer = SDL_CreateRenderer(pnm.window, -1, SDL_RENDERER_ACCELERATED);
+    if (pnm.renderer == NULL) ERROR("failed to create renderer!");
+    
+    return pnm;
 }
 
 static void
@@ -107,11 +111,8 @@ panim_frame_encode(AVCodecContext * cdc_ctx,
  * Plays back the scene in a preview window while also rendering it to a file.
  */
 static void
-panim_scene_render(PAnimScene * scene, char * filename)
+panim_scene_render(PAnimEngine * pnm, PAnimScene * scene, char * filename)
 {
-    PAnimEngine pnm = {0};
-    panim_engine_begin_preview(&pnm, scene);
-    
     // 
     // Video Encoding Setup
     // 
@@ -199,13 +200,13 @@ panim_scene_render(PAnimScene * scene, char * filename)
     
     for (size_t t = 0; t < scene->length_in_frames; ++t) {
         panim_scene_frame_update(scene, t);
-        panim_scene_frame_render(&pnm, scene);
+        panim_scene_frame_render(pnm, scene);
         
         // Get backbuffer contents
         fflush(stdout);
         if (av_frame_make_writable(src_frame) < 0)
             ERROR("failed to lock frame buffer!");
-        SDL_RenderReadPixels(pnm.renderer, NULL, 0,
+        SDL_RenderReadPixels(pnm->renderer, NULL, 0,
                              src_frame->data[0],
                              src_frame->linesize[0]);
         
@@ -216,7 +217,7 @@ panim_scene_render(PAnimScene * scene, char * filename)
         dst_frame->pts = t;
         
         panim_frame_encode(cdc_ctx, fmt_ctx, stream, dst_frame, packet);
-        SDL_RenderPresent(pnm.renderer);
+        SDL_RenderPresent(pnm->renderer);
     }
     
     panim_frame_encode(cdc_ctx, fmt_ctx, stream, NULL, packet); // Flush the encoder
@@ -232,30 +233,27 @@ panim_scene_render(PAnimScene * scene, char * filename)
     avformat_free_context(fmt_ctx);
     
     //---
-    panim_engine_end_preview(&pnm);
+    panim_engine_end_preview(pnm);
 }
 
 /* 
 * Plays back the scene in a preview window without rendering to a file.
 */
 static void
-panim_scene_play(PAnimScene * scene)
+panim_scene_play(PAnimEngine * pnm, PAnimScene * scene)
 {
-    PAnimEngine pnm = {0};
-    panim_engine_begin_preview(&pnm, scene);
-    
     for (size_t t = 0; t < scene->length_in_frames; ++t) {
         Uint32 ticks_at_start_of_frame = SDL_GetTicks();
         
         panim_scene_frame_update(scene, t);
-        panim_scene_frame_render(&pnm, scene);
+        panim_scene_frame_render(pnm, scene);
         
-        SDL_RenderPresent(pnm.renderer);
+        SDL_RenderPresent(pnm->renderer);
         Uint32 frame_time = SDL_GetTicks() - ticks_at_start_of_frame;
         if (frame_time < 16) {
             SDL_Delay(16 - frame_time);
         }
     }
     
-    panim_engine_end_preview(&pnm);
+    panim_engine_end_preview(pnm);
 }
