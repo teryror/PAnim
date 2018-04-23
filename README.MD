@@ -35,10 +35,9 @@ program will always be slower than the actual program executing at CPU
 speed, so this is not expected to become a serious issue, especially when
 compared to compile times.
 
-To avoid over-engineering an over-generalized solution, the system will
-initially be quite minimal, and extensions will be necessary for almost all new
-animations. It is an open question how the uniqueness of each animation should
-be accomodated in the long run.
+For now, the user will be responsible for all per-frame logic and rendering,
+allowing this system to emerge organically, while also allowing animations
+that are more naturally suited to this program model.
 
 ## Building
 
@@ -47,8 +46,10 @@ version 19 was tested. You should be able to use other versions, or even
 [clang-cl](https://clang.llvm.org/docs/UsersManual.html#clang-cl), however.
 
 All dependencies are checked into the repository, you should be able to simply
-run __build.bat__ from the repository root, without installing any additional
-software. This will build __bin\panim.exe__ from __src\panim.c__.
+run __build.bat huffmans_alg__ from the repository root, without installing any
+additional software. This will build __src\scene_huffmans_alg.c__, which could
+be considered sample code, demonstrating how __src\panim.h__ is intended to be
+used.
 
 Should you encounter issues, refer to __vid_test.c__ and __sdl_test.c__ to
 verify that both libavcodec and SDL work in your environment.

@@ -27,7 +27,6 @@ typedef struct {
 typedef struct {
     SDL_Window   * window;
     SDL_Renderer * renderer;
-    SDL_Texture  * render_target;
 } PAnimEngine;
 
 static void
@@ -46,58 +45,18 @@ panim_engine_begin_preview(PAnimEngine * pnm, PAnimScene * scene)
     
     pnm->renderer = SDL_CreateRenderer(pnm->window, -1, SDL_RENDERER_ACCELERATED);
     if (pnm->renderer == NULL) ERROR("failed to create renderer!");
-    
-    pnm->render_target = SDL_CreateTexture(
-        pnm->renderer, SDL_PIXELFORMAT_ARGB8888,
-        SDL_TEXTUREACCESS_TARGET,
-        scene->screen_width,
-        scene->screen_height);
-    if (pnm->render_target == NULL) ERROR("failed to create render target!");
 }
 
 static void
 panim_engine_end_preview(PAnimEngine * pnm)
 {
-    SDL_DestroyTexture(pnm->render_target);
     SDL_DestroyRenderer(pnm->renderer);
     SDL_DestroyWindow(pnm->window);
     SDL_Quit();
 }
 
-static void
-panim_scene_frame_update(PAnimScene * scene, size_t t)
-{
-    unsigned char col = (unsigned char)
-        ((double)t / (double)scene->length_in_frames * 255.0);
-    scene->bg_color = (SDL_Color){ col, 0, col, 255 };
-    
-    // TODO: Check timeline for animations and update scene objects accordingly
-}
-
-static void
-panim_scene_frame_render(PAnimEngine * pnm, PAnimScene * scene)
-{
-    SDL_SetRenderTarget(pnm->renderer, pnm->render_target);
-    SDL_Color bg = scene->bg_color;
-    SDL_SetRenderDrawColor(
-        pnm->renderer, bg.r, bg.g, bg.b, bg.a);
-    
-    // TODO: Render all objects in scene
-    
-    SDL_RenderClear(pnm->renderer);
-}
-
-static void
-panim_frame_present(PAnimEngine * pnm)
-{
-    SDL_SetRenderTarget(pnm->renderer, NULL);
-    SDL_RenderClear(pnm->renderer);
-    SDL_RenderCopy(pnm->renderer, pnm->render_target, NULL, NULL);
-    
-    // TODO: Debug UI?
-    
-    SDL_RenderPresent(pnm->renderer);
-}
+static void panim_scene_frame_update(PAnimScene * scene, size_t t);
+static void panim_scene_frame_render(PAnimEngine * pnm, PAnimScene * scene);
 
 static AVFrame *
 panim_alloc_avframe(enum AVPixelFormat pix_fmt, int width, int height)
@@ -256,9 +215,8 @@ panim_scene_render(PAnimScene * scene, char * filename)
                   dst_frame->data, dst_frame->linesize);
         dst_frame->pts = t;
         
-        
         panim_frame_encode(cdc_ctx, fmt_ctx, stream, dst_frame, packet);
-        panim_frame_present(&pnm);
+        SDL_RenderPresent(pnm.renderer);
     }
     
     panim_frame_encode(cdc_ctx, fmt_ctx, stream, NULL, packet); // Flush the encoder
@@ -291,8 +249,8 @@ panim_scene_play(PAnimScene * scene)
         
         panim_scene_frame_update(scene, t);
         panim_scene_frame_render(&pnm, scene);
-        panim_frame_present(&pnm);
         
+        SDL_RenderPresent(pnm.renderer);
         Uint32 frame_time = SDL_GetTicks() - ticks_at_start_of_frame;
         if (frame_time < 16) {
             SDL_Delay(16 - frame_time);

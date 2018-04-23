@@ -6,6 +6,23 @@ Notice: No warranty is offered or implied; use this code at your own risk.
 #include "panim.h"
 #include "assert.h"
 
+static void
+panim_scene_frame_update(PAnimScene * scene, size_t t)
+{
+    unsigned char col = (unsigned char)
+        ((double)t / (double)scene->length_in_frames * 255.0);
+    scene->bg_color = (SDL_Color){ col, 0, col, 255 };
+}
+
+static void
+panim_scene_frame_render(PAnimEngine * pnm, PAnimScene * scene)
+{
+    SDL_Color bg = scene->bg_color;
+    SDL_SetRenderDrawColor(
+        pnm->renderer, bg.r, bg.g, bg.b, bg.a);
+    SDL_RenderClear(pnm->renderer);
+}
+
 // Stretchy buffers, invented (?) by Sean Barrett, code adapted from
 // https://github.com/pervognsen/bitwise/blob/654cd758c421ba8f278d5eee161c91c81d9044b3/ion/common.c#L117-L153
 
