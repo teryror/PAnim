@@ -4,7 +4,6 @@ Notice: No warranty is offered or implied; use this code at your own risk.
 *******************************************************************************/
 
 #include "panim.h"
-#include "assert.h"
 
 typedef enum CodeTreeType {
     CTT_INVALID,
@@ -31,78 +30,7 @@ static CodeTree    * huff;
 static void
 panim_scene_frame_update(PAnimScene * scene, size_t t)
 {
-    unsigned char col = (unsigned char)
-        ((double)t / (double)scene->length_in_frames * 255.0);
-    scene->bg_color = (SDL_Color){ col, 0, col, 255 };
-}
-
-static void
-render_tree(PAnimEngine * pnm,
-            CodeTree * tree,
-            SDL_Rect dst_range)
-{
-    if (tree->type == CTT_LEAF) {
-        SDL_Rect dst_rect = (SDL_Rect){
-            dst_range.x + dst_range.w  / 2 - 50,
-            dst_range.y, 100, 100,
-        };
-        SDL_RenderCopy(pnm->renderer, circle, NULL, &dst_rect);
-        
-        char lbl[2] = { tree->sym, 0 };
-        SDL_Surface *surf = TTF_RenderText_Solid(
-            font, lbl, (SDL_Color){ 255, 255, 255, 255 });
-        SDL_Texture *text = SDL_CreateTextureFromSurface(pnm->renderer, surf);
-        SDL_FreeSurface(surf);
-        
-        int w, h; SDL_QueryTexture(text, NULL, NULL, &w, &h);
-        dst_rect.x = dst_rect.x + dst_rect.w / 2 - w / 2;
-        dst_rect.y = dst_rect.y + dst_rect.h / 2 - h / 2;
-        dst_rect.w = w;
-        dst_rect.h = h;
-        
-        SDL_RenderCopy(pnm->renderer, text, NULL, &dst_rect);
-    } else if (tree->type == CTT_INTERNAL) {
-        SDL_SetRenderDrawColor(pnm->renderer, 204, 204, 204, 255);
-        
-        int x1 = dst_range.x + dst_range.w / 2;
-        int y1 = dst_range.y + 50;
-        SDL_RenderDrawLine(pnm->renderer, x1, y1, x1 - dst_range.w / 4, y1 + 100);
-        SDL_RenderDrawLine(pnm->renderer, x1, y1, x1 + dst_range.w / 4, y1 + 100);
-        
-        SDL_Rect dst_rect = (SDL_Rect){
-            dst_range.x + dst_range.w / 2 - 50,
-            dst_range.y, 100, 100,
-        };
-        SDL_RenderCopy(pnm->renderer, circle, NULL, &dst_rect);
-        
-        char lbl[4]; snprintf(lbl, 4, "%d", tree->freq);
-        SDL_Surface *surf = TTF_RenderText_Solid(
-            font, lbl, (SDL_Color){ 255, 255, 255, 255 });
-        SDL_Texture *text = SDL_CreateTextureFromSurface(pnm->renderer, surf);
-        SDL_FreeSurface(surf);
-        
-        int w, h; SDL_QueryTexture(text, NULL, NULL, &w, &h);
-        dst_rect.x = dst_rect.x + dst_rect.w / 2 - w / 2;
-        dst_rect.y = dst_rect.y + dst_rect.h / 2 - h / 2;
-        dst_rect.w = w;
-        dst_rect.h = h;
-        
-        SDL_RenderCopy(pnm->renderer, text, NULL, &dst_rect);
-        
-        SDL_Rect l_range = (SDL_Rect){
-            dst_range.x,
-            dst_range.y + 100,
-            dst_range.w / 2,
-            dst_range.h - 100,
-        }; render_tree(pnm, tree->children.left, l_range);
-        
-        SDL_Rect r_range = (SDL_Rect){
-            dst_range.x + dst_range.w / 2,
-            dst_range.y + 100,
-            dst_range.w / 2,
-            dst_range.h - 100,
-        }; render_tree(pnm, tree->children.right, r_range);
-    }
+    
 }
 
 static void
@@ -113,52 +41,9 @@ panim_scene_frame_render(PAnimEngine * pnm, PAnimScene * scene)
         pnm->renderer, bg.r, bg.g, bg.b, bg.a);
     SDL_RenderClear(pnm->renderer);
     
-    SDL_Rect dst_range = (SDL_Rect){
-        scene->screen_width  / 2 - 570,
-        scene->screen_height / 2 - 250,
-        1140, 500,
-    };
-    render_tree(pnm, huff, dst_range);
-}
-
-// Stretchy buffers, invented (?) by Sean Barrett, code adapted from
-// https://github.com/pervognsen/bitwise/blob/654cd758c421ba8f278d5eee161c91c81d9044b3/ion/common.c#L117-L153
-
-#define MAX(x, y) ((x) >= (y) ? (x) : (y))
-
-typedef struct BufHdr {
-    size_t len;
-    size_t cap;
-    char buf[];
-} BufHdr;
-
-#define buf__hdr(b) ((BufHdr *)((char *)(b) - offsetof(BufHdr, buf)))
-
-#define buf_len(b) ((b) ? buf__hdr(b)->len : 0)
-#define buf_cap(b) ((b) ? buf__hdr(b)->cap : 0)
-#define buf_end(b) ((b) + buf_len(b))
-#define buf_sizeof(b) ((b) ? buf_len(b)*sizeof(*b) : 0)
-
-#define buf_free(b) ((b) ? (free(buf__hdr(b)), (b) = NULL) : 0)
-#define buf_fit(b, n) ((n) <= buf_cap(b) ? 0 : ((b) = buf__grow((b), (n), sizeof(*(b)))))
-#define buf_push(b, ...) (buf_fit((b), 1 + buf_len(b)), (b)[buf__hdr(b)->len++] = (__VA_ARGS__))
-#define buf_clear(b) ((b) ? buf__hdr(b)->len = 0 : 0)
-
-void *buf__grow(const void *buf, size_t new_len, size_t elem_size) {
-    assert(buf_cap(buf) <= (SIZE_MAX - 1)/2);
-    size_t new_cap = MAX(16, MAX(1 + 2*buf_cap(buf), new_len));
-    assert(new_len <= new_cap);
-    assert(new_cap <= (SIZE_MAX - offsetof(BufHdr, buf))/elem_size);
-    size_t new_size = offsetof(BufHdr, buf) + new_cap*elem_size;
-    BufHdr *new_hdr;
-    if (buf) {
-        new_hdr = realloc(buf__hdr(buf), new_size);
-    } else {
-        new_hdr = malloc(new_size);
-        new_hdr->len = 0;
+    for (int i = 0; i < buf_len(scene->objects); ++i) {
+        panim_object_draw(pnm, &scene->objects[i]);
     }
-    new_hdr->cap = new_cap;
-    return new_hdr->buf;
 }
 
 // -----------------------
@@ -263,17 +148,81 @@ build_huff_tree(char * message) {
     return forest;
 }
 
+static void
+add_tree_to_scene(PAnimEngine * pnm, PAnimScene * scene,
+                  CodeTree * tree,
+                  SDL_Rect dst_range)
+{
+    SDL_Color white = (SDL_Color) { 0xFF, 0xFF, 0xFF, 0xFF };
+    if (tree->type == CTT_LEAF) {
+        panim_scene_add_image(pnm, scene, circle,
+                              dst_range.x + dst_range.w  / 2,
+                              dst_range.y + 50, 1);
+        
+        char *lbl = (char *) malloc(2);
+        lbl[0] = tree->sym; lbl[1] = 0;
+        panim_scene_add_text(scene, font, lbl, white,
+                             dst_range.x + dst_range.w / 2,
+                             dst_range.y + 50, 2);
+    } else if (tree->type == CTT_INTERNAL) {
+        SDL_Color line_color = (SDL_Color){ 204, 204, 204, 255 };
+        int x1 = dst_range.x + dst_range.w / 2;
+        int y1 = dst_range.y + 50;
+        
+        panim_scene_add_line(
+            scene, line_color, x1, y1, x1 - dst_range.w / 4, y1 + 100, 0);
+        panim_scene_add_line(
+            scene, line_color, x1, y1, x1 + dst_range.w / 4, y1 + 100, 0);
+        
+        panim_scene_add_image(pnm, scene, circle,
+                              dst_range.x + dst_range.w / 2,
+                              dst_range.y + 50, 1);
+        
+        char *lbl = (char *) malloc(4);
+        snprintf(lbl, 4, "%d", tree->freq);
+        panim_scene_add_text(scene, font, lbl, white,
+                             dst_range.x + dst_range.w / 2,
+                             dst_range.y + 50, 2);
+        
+        SDL_Rect l_range = (SDL_Rect){
+            dst_range.x,
+            dst_range.y + 100,
+            dst_range.w / 2,
+            dst_range.h - 100,
+        }; add_tree_to_scene(pnm, scene, tree->children.left, l_range);
+        
+        SDL_Rect r_range = (SDL_Rect){
+            dst_range.x + dst_range.w / 2,
+            dst_range.y + 100,
+            dst_range.w / 2,
+            dst_range.h - 100,
+        }; add_tree_to_scene(pnm, scene, tree->children.right, r_range);
+    }
+}
+
 int main(int argc, char *argv[]) {
-    huff = build_huff_tree("ABRACADABRA");
-    
+    // Initialize PAnim
     PAnimScene scene = {0};
     scene.length_in_frames = 180;
     scene.screen_width  = 1280;
     scene.screen_height =  720;
+    scene.bg_color = (SDL_Color){ 32, 32, 32, 0xFF };
     
     PAnimEngine pnm = panim_engine_begin_preview(&scene);
     circle = IMG_LoadTexture(pnm.renderer, "circle.png");
     font   = TTF_OpenFont("bin/Oswald-Bold.ttf", 36);
+    
+    // Populate Scene
+    huff = build_huff_tree("ABRACADABRA");
+    SDL_Rect dst_range = (SDL_Rect){
+        scene.screen_width  / 2 - 570,
+        scene.screen_height / 2 - 250,
+        1140, 500,
+    };
+    add_tree_to_scene(&pnm, &scene, huff, dst_range);
+    
+    // Go!
+    panim_scene_finalize(&scene);
     
     if (argc == 1) {
         panim_scene_play(&pnm, &scene);

@@ -3,6 +3,7 @@ Author: Tristan Dannenberg
 Notice: No warranty is offered or implied; use this code at your own risk.
 *******************************************************************************/
 
+#include "assert.h"
 #include "stdio.h"
 #include "stdint.h"
 
@@ -17,18 +18,212 @@ Notice: No warranty is offered or implied; use this code at your own risk.
 
 #define ERROR(E) do { fprintf(stderr, "Error: " E "\n"); exit(1); } while (0)
 
+// Stretchy buffers, invented (?) by Sean Barrett, code adapted from
+// https://github.com/pervognsen/bitwise/blob/654cd758c421ba8f278d5eee161c91c81d9044b3/ion/common.c#L117-L153
+
+#define MAX(x, y) ((x) >= (y) ? (x) : (y))
+
+typedef struct BufHdr {
+    size_t len;
+    size_t cap;
+    char buf[];
+} BufHdr;
+
+#define buf__hdr(b) ((BufHdr *)((char *)(b) - offsetof(BufHdr, buf)))
+
+#define buf_len(b) ((b) ? buf__hdr(b)->len : 0)
+#define buf_cap(b) ((b) ? buf__hdr(b)->cap : 0)
+#define buf_end(b) ((b) + buf_len(b))
+#define buf_sizeof(b) ((b) ? buf_len(b)*sizeof(*b) : 0)
+
+#define buf_free(b) ((b) ? (free(buf__hdr(b)), (b) = NULL) : 0)
+#define buf_fit(b, n) ((n) <= buf_cap(b) ? 0 : ((b) = buf__grow((b), (n), sizeof(*(b)))))
+#define buf_push(b, ...) (buf_fit((b), 1 + buf_len(b)), (b)[buf__hdr(b)->len++] = (__VA_ARGS__))
+#define buf_clear(b) ((b) ? buf__hdr(b)->len = 0 : 0)
+
+void *buf__grow(const void *buf, size_t new_len, size_t elem_size) {
+    assert(buf_cap(buf) <= (SIZE_MAX - 1)/2);
+    size_t new_cap = MAX(16, MAX(1 + 2*buf_cap(buf), new_len));
+    assert(new_len <= new_cap);
+    assert(new_cap <= (SIZE_MAX - offsetof(BufHdr, buf))/elem_size);
+    size_t new_size = offsetof(BufHdr, buf) + new_cap*elem_size;
+    BufHdr *new_hdr;
+    if (buf) {
+        new_hdr = realloc(buf__hdr(buf), new_size);
+    } else {
+        new_hdr = malloc(new_size);
+        new_hdr->len = 0;
+    }
+    new_hdr->cap = new_cap;
+    return new_hdr->buf;
+}
+
+typedef enum PAnimObjType {
+    PNM_OBJ_INVALID,
+    PNM_OBJ_IMAGE,
+    PNM_OBJ_TEXT,
+    PNM_OBJ_LINE,
+} PAnimObjType;
+
+typedef struct {
+    PAnimObjType type;
+    int depth_level;
+    union {
+        struct {
+            SDL_Texture * texture;
+            SDL_Rect location;
+        } img;
+        struct {
+            SDL_Color color;
+            TTF_Font * font;
+            char * data;
+            int center_x;
+            int center_y;
+        } txt;
+        struct {
+            SDL_Color color;
+            int x1, y1;
+            int x2, y2;
+        } line;
+    };
+} PAnimObject;
+
 typedef struct {
     size_t length_in_frames;
     int screen_width;
     int screen_height;
     
     SDL_Color bg_color;
+    PAnimObject * objects;
 } PAnimScene;
 
 typedef struct {
     SDL_Window   * window;
     SDL_Renderer * renderer;
 } PAnimEngine;
+
+/*
+ * Pushes a new image object onto the scene.
+ */
+static void
+panim_scene_add_image(PAnimEngine * pnm, PAnimScene * scene,
+                      SDL_Texture * img,
+                      int center_x, int center_y,
+                      int depth_level)
+{
+    PAnimObject obj;
+    obj.type = PNM_OBJ_IMAGE;
+    obj.depth_level = depth_level;
+    obj.img.texture = img;
+    
+    int w, h; SDL_QueryTexture(img, NULL, NULL, &w, &h);
+    obj.img.location = (SDL_Rect){
+        .x = center_x - w/2,
+        .y = center_y - h/2,
+        .w = w, .h = h
+    };
+    
+    buf_push(scene->objects, obj);
+}
+
+/*
+ * Pushes a new text object onto the scene, taking ownership of `text`.
+ */
+static void
+panim_scene_add_text(PAnimScene * scene,
+                     TTF_Font * font, char * text,
+                     SDL_Color color,
+                     int center_x, int center_y,
+                     int depth_level)
+{
+    PAnimObject obj;
+    obj.type = PNM_OBJ_TEXT;
+    obj.depth_level = depth_level;
+    obj.txt.font = font;
+    obj.txt.data = text;
+    obj.txt.color = color;
+    obj.txt.center_x = center_x;
+    obj.txt.center_y = center_y;
+    
+    buf_push(scene->objects, obj);
+}
+
+/*
+ * Pushes a new line object onto the scene.
+ */
+static void
+panim_scene_add_line(PAnimScene * scene,
+                     SDL_Color color,
+                     int x1, int y1,
+                     int x2, int y2,
+                     int depth_level)
+{
+    PAnimObject obj;
+    obj.type = PNM_OBJ_LINE;
+    obj.depth_level = depth_level;
+    obj.line.color = color;
+    obj.line.x1 = x1;
+    obj.line.y1 = y1;
+    obj.line.x2 = x2;
+    obj.line.y2 = y2;
+    
+    buf_push(scene->objects, obj);
+}
+
+static int
+panim_object_depth_sort(const PAnimObject * a, const PAnimObject * b)
+{
+    if (a->depth_level < b->depth_level) return -1;
+    if (a->depth_level > b->depth_level) return  1;
+    return 0;
+}
+
+static void
+panim_scene_finalize(PAnimScene * scene)
+{
+    qsort(scene->objects,
+          buf_len(scene->objects),
+          sizeof(PAnimObject),
+          panim_object_depth_sort);
+}
+
+static void
+panim_object_draw(PAnimEngine * pnm, PAnimObject * obj)
+{
+    switch (obj->type) {
+        case PNM_OBJ_IMAGE: {
+            SDL_RenderCopy(
+                pnm->renderer, obj->img.texture, NULL, &obj->img.location);
+        } break;
+        case PNM_OBJ_TEXT: {
+            // TODO(Optimization): Only redraw text when necessary
+            SDL_Surface *surf = TTF_RenderText_Solid(
+                obj->txt.font, obj->txt.data, obj->txt.color);
+            SDL_Texture *text = SDL_CreateTextureFromSurface(pnm->renderer, surf);
+            SDL_FreeSurface(surf);
+            
+            int w, h; SDL_QueryTexture(text, NULL, NULL, &w, &h);
+            SDL_Rect location = (SDL_Rect){
+                .x = obj->txt.center_x - w/2,
+                .y = obj->txt.center_y - h/2,
+                .w = w, .h = h,
+            };
+            
+            SDL_RenderCopy(pnm->renderer, text, NULL, &location);
+        } break;
+        case PNM_OBJ_LINE: {
+            SDL_SetRenderDrawColor(pnm->renderer,
+                                   obj->line.color.r,
+                                   obj->line.color.g,
+                                   obj->line.color.b,
+                                   obj->line.color.a);
+            SDL_RenderDrawLine(pnm->renderer,
+                               obj->line.x1, obj->line.y1,
+                               obj->line.x2, obj->line.y2);
+        } break;
+        default: __debugbreak();
+    }
+}
 
 static PAnimEngine
 panim_engine_begin_preview(PAnimScene * scene)
@@ -108,8 +303,8 @@ panim_frame_encode(AVCodecContext * cdc_ctx,
 }
 
 /* 
- * Plays back the scene in a preview window while also rendering it to a file.
- */
+* Plays back the scene in a preview window while also rendering it to a file.
+*/
 static void
 panim_scene_render(PAnimEngine * pnm, PAnimScene * scene, char * filename)
 {
