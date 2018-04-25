@@ -90,6 +90,7 @@ typedef struct {
 typedef enum PAnimEventType {
     PNM_EVENT_INVALID,
     PNM_EVENT_COLOR_FADE,
+    PNM_EVENT_MOVEMENT,
 } PAnimEventType;
 
 typedef struct {
@@ -102,6 +103,15 @@ typedef struct {
             SDL_Color new_color;
             SDL_Color old_color; // initialized during playback when the animation begins
         } colfd;
+        struct {
+            int * x_val;
+            int * y_val;
+            int x_target;
+            int y_target;
+            // initialized during playback when the animation begins
+            int x_old;
+            int y_old;
+        } move;
     };
 } PAnimEvent;
 
@@ -213,6 +223,27 @@ panim_scene_add_fade(PAnimScene * scene,
     buf_push(scene->timeline, anim);
 }
 
+static void
+panim_scene_add_move(PAnimScene * scene, int *x, int *y,
+                     int target_x, int target_y,
+                     size_t begin_frame, size_t length)
+{
+    PAnimEvent anim;
+    anim.type = PNM_EVENT_MOVEMENT;
+    anim.begin_frame = begin_frame;
+    anim.length = length;
+    anim.move.x_val = x;
+    anim.move.y_val = y;
+    anim.move.x_target = target_x;
+    anim.move.y_target = target_y;
+    
+    size_t anim_end_frame = begin_frame + length;
+    if (anim_end_frame > scene->length_in_frames)
+        scene->length_in_frames = anim_end_frame;
+    
+    buf_push(scene->timeline, anim);
+}
+
 static int
 panim_object_depth_sort(const PAnimObject ** a, const PAnimObject ** b)
 {
@@ -242,6 +273,68 @@ panim_scene_finalize(PAnimScene * scene)
           sizeof(PAnimEvent), panim_event_time_sort);
 }
 
+static inline int
+panim_lerp_s32(int a, int b, float t)
+{
+    return a + (int)(t * ((float)b - (float)a));
+}
+
+static inline unsigned char
+panim_lerp_u8(unsigned char a, unsigned char b, float t)
+{
+    return a + (unsigned char)(t * ((float)b - (float)a));
+}
+
+static inline SDL_Color
+panim_lerp_color(SDL_Color a, SDL_Color b, float t)
+{
+    SDL_Color result;
+    result.r = panim_lerp_u8(a.r, b.r, t);
+    result.g = panim_lerp_u8(a.g, b.g, t);
+    result.b = panim_lerp_u8(a.b, b.b, t);
+    result.a = panim_lerp_u8(a.a, b.a, t);
+    return result;
+}
+
+static void
+panim_event_tick(PAnimEvent * anim, size_t t)
+{
+    if (t < anim->begin_frame) return;
+    if (t > anim->begin_frame + anim->length) return;
+    
+    if (t == anim->begin_frame) {
+        switch (anim->type) {
+            case PNM_EVENT_COLOR_FADE: {
+                anim->colfd.old_color = *anim->colfd.value;
+            } break;
+            case PNM_EVENT_MOVEMENT: {
+                anim->move.x_old = *anim->move.x_val;
+                anim->move.y_old = *anim->move.y_val;
+            } break;
+            default: __debugbreak();
+        }
+        
+        return;
+    }
+    
+    float completion = (float)(t - anim->begin_frame) / (float)(anim->length);
+    switch (anim->type) {
+        case PNM_EVENT_COLOR_FADE: {
+            *anim->colfd.value = panim_lerp_color(
+                anim->colfd.old_color, anim->colfd.new_color, completion);
+        } break;
+        case PNM_EVENT_MOVEMENT: {
+            float smoothstep = completion * completion * (3 - 2 * completion);
+            
+            *anim->move.x_val = panim_lerp_s32(
+                anim->move.x_old, anim->move.x_target, smoothstep);
+            *anim->move.y_val = panim_lerp_s32(
+                anim->move.y_old, anim->move.y_target, smoothstep);
+        } break;
+        default: __debugbreak();
+    }
+}
+
 static void
 panim_object_draw(PAnimEngine * pnm, PAnimObject * obj)
 {
@@ -262,8 +355,8 @@ panim_object_draw(PAnimEngine * pnm, PAnimObject * obj)
             SDL_FreeSurface(surf);
             
             SDL_SetTextureBlendMode(text, SDL_BLENDMODE_BLEND);
-            //SDL_SetTextureColorMod(text, obj->color.r, obj->color.g, obj->color.b);
-            SDL_SetTextureAlphaMod(obj->img.texture, obj->color.a);
+            SDL_SetTextureColorMod(text, obj->color.r, obj->color.g, obj->color.b);
+            SDL_SetTextureAlphaMod(text, obj->color.a);
             
             int w, h; SDL_QueryTexture(text, NULL, NULL, &w, &h);
             SDL_Rect location = (SDL_Rect){
