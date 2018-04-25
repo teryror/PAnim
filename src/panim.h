@@ -68,25 +68,42 @@ typedef enum PAnimObjType {
 typedef struct {
     PAnimObjType type;
     int depth_level;
+    SDL_Color color;
     union {
         struct {
             SDL_Texture * texture;
             SDL_Rect location;
         } img;
         struct {
-            SDL_Color color;
             TTF_Font * font;
             char * data;
             int center_x;
             int center_y;
         } txt;
         struct {
-            SDL_Color color;
             int x1, y1;
             int x2, y2;
         } line;
     };
 } PAnimObject;
+
+typedef enum PAnimEventType {
+    PNM_EVENT_INVALID,
+    PNM_EVENT_COLOR_FADE,
+} PAnimEventType;
+
+typedef struct {
+    PAnimEventType type;
+    size_t begin_frame;
+    size_t length;
+    union {
+        struct {
+            SDL_Color * value;
+            SDL_Color new_color;
+            SDL_Color old_color; // initialized during playback when the animation begins
+        } colfd;
+    };
+} PAnimEvent;
 
 typedef struct {
     size_t length_in_frames;
@@ -94,7 +111,8 @@ typedef struct {
     int screen_height;
     
     SDL_Color bg_color;
-    PAnimObject * objects;
+    PAnimObject ** objects;
+    PAnimEvent   * timeline;
 } PAnimScene;
 
 typedef struct {
@@ -105,86 +123,123 @@ typedef struct {
 /*
  * Pushes a new image object onto the scene.
  */
-static void
+static PAnimObject *
 panim_scene_add_image(PAnimEngine * pnm, PAnimScene * scene,
-                      SDL_Texture * img,
+                      SDL_Texture * img, SDL_Color mod_color,
                       int center_x, int center_y,
                       int depth_level)
 {
-    PAnimObject obj;
-    obj.type = PNM_OBJ_IMAGE;
-    obj.depth_level = depth_level;
-    obj.img.texture = img;
+    PAnimObject *obj = (PAnimObject *) malloc(sizeof(PAnimObject));
+    obj->type = PNM_OBJ_IMAGE;
+    obj->depth_level = depth_level;
+    obj->color = mod_color;
+    obj->img.texture = img;
     
     int w, h; SDL_QueryTexture(img, NULL, NULL, &w, &h);
-    obj.img.location = (SDL_Rect){
+    obj->img.location = (SDL_Rect){
         .x = center_x - w/2,
         .y = center_y - h/2,
         .w = w, .h = h
     };
     
     buf_push(scene->objects, obj);
+    return obj;
 }
 
 /*
  * Pushes a new text object onto the scene, taking ownership of `text`.
  */
-static void
+static PAnimObject *
 panim_scene_add_text(PAnimScene * scene,
                      TTF_Font * font, char * text,
                      SDL_Color color,
                      int center_x, int center_y,
                      int depth_level)
 {
-    PAnimObject obj;
-    obj.type = PNM_OBJ_TEXT;
-    obj.depth_level = depth_level;
-    obj.txt.font = font;
-    obj.txt.data = text;
-    obj.txt.color = color;
-    obj.txt.center_x = center_x;
-    obj.txt.center_y = center_y;
+    PAnimObject *obj = (PAnimObject *) malloc(sizeof(PAnimObject));
+    obj->type = PNM_OBJ_TEXT;
+    obj->depth_level = depth_level;
+    obj->color = color;
+    obj->txt.font = font;
+    obj->txt.data = text;
+    obj->txt.center_x = center_x;
+    obj->txt.center_y = center_y;
     
     buf_push(scene->objects, obj);
+    return obj;
 }
 
 /*
  * Pushes a new line object onto the scene.
  */
-static void
+static PAnimObject *
 panim_scene_add_line(PAnimScene * scene,
                      SDL_Color color,
                      int x1, int y1,
                      int x2, int y2,
                      int depth_level)
 {
-    PAnimObject obj;
-    obj.type = PNM_OBJ_LINE;
-    obj.depth_level = depth_level;
-    obj.line.color = color;
-    obj.line.x1 = x1;
-    obj.line.y1 = y1;
-    obj.line.x2 = x2;
-    obj.line.y2 = y2;
+    PAnimObject *obj = (PAnimObject *) malloc(sizeof(PAnimObject));
+    obj->type = PNM_OBJ_LINE;
+    obj->depth_level = depth_level;
+    obj->color = color;
+    obj->line.x1 = x1;
+    obj->line.y1 = y1;
+    obj->line.x2 = x2;
+    obj->line.y2 = y2;
     
     buf_push(scene->objects, obj);
+    return obj;
+}
+
+static void
+panim_scene_add_fade(PAnimScene * scene,
+                     PAnimObject * obj,
+                     SDL_Color new_color,
+                     size_t begin_frame,
+                     size_t length)
+{
+    PAnimEvent anim;
+    anim.type = PNM_EVENT_COLOR_FADE;
+    anim.begin_frame = begin_frame;
+    anim.length = length;
+    anim.colfd.value = &obj->color;
+    anim.colfd.new_color = new_color;
+    
+    size_t anim_end_frame = begin_frame + length;
+    if (anim_end_frame > scene->length_in_frames)
+        scene->length_in_frames = anim_end_frame;
+    
+    buf_push(scene->timeline, anim);
 }
 
 static int
-panim_object_depth_sort(const PAnimObject * a, const PAnimObject * b)
+panim_object_depth_sort(const PAnimObject ** a, const PAnimObject ** b)
 {
-    if (a->depth_level < b->depth_level) return -1;
-    if (a->depth_level > b->depth_level) return  1;
+    if ((*a)->depth_level < (*b)->depth_level) return -1;
+    if ((*a)->depth_level > (*b)->depth_level) return  1;
+    return 0;
+}
+
+static int
+panim_event_time_sort(const PAnimEvent * a, const PAnimEvent * b)
+{
+    if (a->begin_frame < b->begin_frame) return -1;
+    if (a->begin_frame > b->begin_frame) return  1;
     return 0;
 }
 
 static void
 panim_scene_finalize(PAnimScene * scene)
 {
-    qsort(scene->objects,
-          buf_len(scene->objects),
-          sizeof(PAnimObject),
-          panim_object_depth_sort);
+    // This sort is why scene->objects needs to be an array of pointers.
+    // If it were a flat array, any pointers to any of its elements would
+    // be invalidated here.        (25 April 2018)
+    qsort(scene->objects, buf_len(scene->objects),
+          sizeof(PAnimObject *), panim_object_depth_sort);
+    
+    qsort(scene->timeline, buf_len(scene->timeline),
+          sizeof(PAnimEvent), panim_event_time_sort);
 }
 
 static void
@@ -192,15 +247,23 @@ panim_object_draw(PAnimEngine * pnm, PAnimObject * obj)
 {
     switch (obj->type) {
         case PNM_OBJ_IMAGE: {
-            SDL_RenderCopy(
+            SDL_SetTextureColorMod(obj->img.texture,
+                                   obj->color.r, obj->color.g, obj->color.b);
+            SDL_SetTextureAlphaMod(obj->img.texture, obj->color.a);
+            
+            int ret = SDL_RenderCopy(
                 pnm->renderer, obj->img.texture, NULL, &obj->img.location);
         } break;
         case PNM_OBJ_TEXT: {
             // TODO(Optimization): Only redraw text when necessary
             SDL_Surface *surf = TTF_RenderText_Solid(
-                obj->txt.font, obj->txt.data, obj->txt.color);
+                obj->txt.font, obj->txt.data, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF });
             SDL_Texture *text = SDL_CreateTextureFromSurface(pnm->renderer, surf);
             SDL_FreeSurface(surf);
+            
+            SDL_SetTextureBlendMode(text, SDL_BLENDMODE_BLEND);
+            //SDL_SetTextureColorMod(text, obj->color.r, obj->color.g, obj->color.b);
+            SDL_SetTextureAlphaMod(obj->img.texture, obj->color.a);
             
             int w, h; SDL_QueryTexture(text, NULL, NULL, &w, &h);
             SDL_Rect location = (SDL_Rect){
@@ -212,11 +275,12 @@ panim_object_draw(PAnimEngine * pnm, PAnimObject * obj)
             SDL_RenderCopy(pnm->renderer, text, NULL, &location);
         } break;
         case PNM_OBJ_LINE: {
+            SDL_SetRenderDrawBlendMode(pnm->renderer, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(pnm->renderer,
-                                   obj->line.color.r,
-                                   obj->line.color.g,
-                                   obj->line.color.b,
-                                   obj->line.color.a);
+                                   obj->color.r,
+                                   obj->color.g,
+                                   obj->color.b,
+                                   obj->color.a);
             SDL_RenderDrawLine(pnm->renderer,
                                obj->line.x1, obj->line.y1,
                                obj->line.x2, obj->line.y2);

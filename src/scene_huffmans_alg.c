@@ -27,10 +27,31 @@ static SDL_Texture * circle;
 static TTF_Font    * font;
 static CodeTree    * huff;
 
+static unsigned char lerp(unsigned char a, unsigned char b, float t) {
+    return a + (unsigned char)(t * ((float)b - (float)a));
+}
+
 static void
 panim_scene_frame_update(PAnimScene * scene, size_t t)
 {
-    
+    for (PAnimEvent * anim = scene->timeline;
+         anim < scene->timeline + buf_len(scene->timeline);
+         ++anim)
+    {
+        if ((t < anim->begin_frame) || (t > (anim->begin_frame + anim->length)))
+            continue;
+        
+        if (t == anim->begin_frame) {
+            anim->colfd.old_color = *anim->colfd.value;
+        } else {
+            float dt = (float)(t - anim->begin_frame) / (float)(anim->length);
+            
+            anim->colfd.value->r = lerp(anim->colfd.old_color.r, anim->colfd.new_color.r, dt);
+            anim->colfd.value->g = lerp(anim->colfd.old_color.g, anim->colfd.new_color.g, dt);
+            anim->colfd.value->b = lerp(anim->colfd.old_color.b, anim->colfd.new_color.b, dt);
+            anim->colfd.value->a = lerp(anim->colfd.old_color.a, anim->colfd.new_color.a, dt);
+        }
+    }
 }
 
 static void
@@ -42,7 +63,7 @@ panim_scene_frame_render(PAnimEngine * pnm, PAnimScene * scene)
     SDL_RenderClear(pnm->renderer);
     
     for (int i = 0; i < buf_len(scene->objects); ++i) {
-        panim_object_draw(pnm, &scene->objects[i]);
+        panim_object_draw(pnm, scene->objects[i]);
     }
 }
 
@@ -148,41 +169,54 @@ build_huff_tree(char * message) {
     return forest;
 }
 
+static size_t timeline_cursor = 10;
+
 static void
 add_tree_to_scene(PAnimEngine * pnm, PAnimScene * scene,
                   CodeTree * tree,
                   SDL_Rect dst_range)
 {
     SDL_Color white = (SDL_Color) { 0xFF, 0xFF, 0xFF, 0xFF };
+    SDL_Color transparent = (SDL_Color) { 0xFF, 0xFF, 0xFF, 0x00 };
     if (tree->type == CTT_LEAF) {
-        panim_scene_add_image(pnm, scene, circle,
-                              dst_range.x + dst_range.w  / 2,
-                              dst_range.y + 50, 1);
+        PAnimObject *img = panim_scene_add_image(pnm, scene, circle, transparent,
+                                                 dst_range.x + dst_range.w  / 2,
+                                                 dst_range.y + 50, 1);
         
         char *lbl = (char *) malloc(2);
         lbl[0] = tree->sym; lbl[1] = 0;
-        panim_scene_add_text(scene, font, lbl, white,
-                             dst_range.x + dst_range.w / 2,
-                             dst_range.y + 50, 2);
+        PAnimObject *txt = panim_scene_add_text(scene, font, lbl, transparent,
+                                                dst_range.x + dst_range.w / 2,
+                                                dst_range.y + 50, 2);
+        
+        panim_scene_add_fade(scene, img, white, timeline_cursor, 60);
+        panim_scene_add_fade(scene, txt, white, timeline_cursor, 60);
+        timeline_cursor += 30;
     } else if (tree->type == CTT_INTERNAL) {
         SDL_Color line_color = (SDL_Color){ 204, 204, 204, 255 };
         int x1 = dst_range.x + dst_range.w / 2;
         int y1 = dst_range.y + 50;
         
-        panim_scene_add_line(
-            scene, line_color, x1, y1, x1 - dst_range.w / 4, y1 + 100, 0);
-        panim_scene_add_line(
-            scene, line_color, x1, y1, x1 + dst_range.w / 4, y1 + 100, 0);
+        PAnimObject *linel = panim_scene_add_line(
+            scene, transparent, x1, y1, x1 - dst_range.w / 4, y1 + 100, 0);
+        PAnimObject *liner = panim_scene_add_line(
+            scene, transparent, x1, y1, x1 + dst_range.w / 4, y1 + 100, 0);
         
-        panim_scene_add_image(pnm, scene, circle,
-                              dst_range.x + dst_range.w / 2,
-                              dst_range.y + 50, 1);
+        PAnimObject *img = panim_scene_add_image(pnm, scene, circle, transparent,
+                                                 dst_range.x + dst_range.w / 2,
+                                                 dst_range.y + 50, 1);
         
         char *lbl = (char *) malloc(4);
         snprintf(lbl, 4, "%d", tree->freq);
-        panim_scene_add_text(scene, font, lbl, white,
-                             dst_range.x + dst_range.w / 2,
-                             dst_range.y + 50, 2);
+        PAnimObject *txt = panim_scene_add_text(scene, font, lbl, transparent,
+                                                dst_range.x + dst_range.w / 2,
+                                                dst_range.y + 50, 2);
+        
+        panim_scene_add_fade(scene, img, white, timeline_cursor, 60);
+        panim_scene_add_fade(scene, txt, white, timeline_cursor, 60);
+        timeline_cursor += 30;
+        panim_scene_add_fade(scene, linel, line_color, timeline_cursor, 60);
+        panim_scene_add_fade(scene, liner, line_color, timeline_cursor, 60);
         
         SDL_Rect l_range = (SDL_Rect){
             dst_range.x,
@@ -203,7 +237,7 @@ add_tree_to_scene(PAnimEngine * pnm, PAnimScene * scene,
 int main(int argc, char *argv[]) {
     // Initialize PAnim
     PAnimScene scene = {0};
-    scene.length_in_frames = 180;
+    scene.length_in_frames = 0;
     scene.screen_width  = 1280;
     scene.screen_height =  720;
     scene.bg_color = (SDL_Color){ 32, 32, 32, 0xFF };
