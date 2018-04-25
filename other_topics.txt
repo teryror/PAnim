@@ -1,0 +1,37 @@
+Asymmetric Numeral Systems
+Arithmetic Coding / Range Coding
+Lempel-Ziv and Derivatives
+Context Modeling and Context Mixing
+Lossy Codecs
+
+-------------------------------------------------------------------------------
+
+CPU Internals
+- loooots
+
+Performance Modeling
+- asymptotic analysis
+  -> bring up complexity classes, "the P vs. NP you hear so much about"
+- dependency graphs
+- the pareto frontier and the 'natural lambda' (see cbloom)
+
+Parallel Programming & Synchronization
+- cache coherency & atomic operations
+- race conditions and other hazards
+- synchronization primitives
+- lock-free and wait-free synchronization
+
+-------------------------------------------------------------------------------
+
+Lattice Theory
+Category/Type Theory
+Cryptography
+Function Optimization & Approximation
+
+Garbage Collection
+Program Analysis & Transformation
+
+Digital Signal Processing
+Operating Systems
+Networks
+Database Engines
