@@ -161,50 +161,34 @@ add_tree_to_scene(PAnimEngine * pnm, PAnimScene * scene,
                   SDL_Rect dst_range)
 {
     SDL_Color white = (SDL_Color) { 0xFF, 0xFF, 0xFF, 0xFF };
-    SDL_Color transparent = (SDL_Color) { 0xFF, 0xFF, 0xFF, 0x00 };
+    
+    int x1 = dst_range.x + dst_range.w / 2;
+    int y1 = dst_range.y + 50;
+    
     if (tree->type == CTT_LEAF) {
-        PAnimObject *img = panim_scene_add_image(pnm, scene, circle, transparent,
-                                                 dst_range.x + dst_range.w  / 2,
-                                                 dst_range.y + 50, 1);
-        
         char *lbl = (char *) malloc(2);
         lbl[0] = tree->sym; lbl[1] = 0;
-        PAnimObject *txt = panim_scene_add_text(scene, font, lbl, transparent,
-                                                dst_range.x + dst_range.w / 2,
-                                                dst_range.y + 50, 2);
         
-        panim_scene_add_fade(scene, img, white, timeline_cursor, 60);
-        panim_scene_add_fade(scene, txt, white, timeline_cursor, 60);
+        panim_fade_in_text(scene, lbl, font, white, 2, x1, y1, timeline_cursor, 60);
+        panim_fade_in_image(scene, circle, 1, x1, y1, timeline_cursor, 60);
+        
         timeline_cursor += 30;
     } else if (tree->type == CTT_INTERNAL) {
         SDL_Color line_color = (SDL_Color){ 204, 204, 204, 255 };
-        int x1 = dst_range.x + dst_range.w / 2;
-        int y1 = dst_range.y + 50;
         
-        PAnimObject *linel = panim_scene_add_line(
-            scene, line_color, x1, y1, x1, y1, 0);
-        PAnimObject *liner = panim_scene_add_line(
-            scene, line_color, x1, y1, x1, y1, 0);
-        
-        PAnimObject *img = panim_scene_add_image(pnm, scene, circle, transparent,
-                                                 dst_range.x + dst_range.w / 2,
-                                                 dst_range.y + 50, 1);
+        panim_fade_in_image(scene, circle, 1, x1, y1, timeline_cursor, 60);
+        panim_draw_line(scene, line_color, 0, x1, y1,
+                        x1 - dst_range.w / 4, y1 + 100,
+                        timeline_cursor + 95, 60);
+        panim_draw_line(scene, line_color, 0, x1, y1,
+                        x1 + dst_range.w / 4, y1 + 100,
+                        timeline_cursor + 95, 60);
         
         char *lbl = (char *) malloc(4);
         snprintf(lbl, 4, "%d", tree->freq);
-        PAnimObject *txt = panim_scene_add_text(scene, font, lbl, transparent,
-                                                dst_range.x + dst_range.w / 2,
-                                                dst_range.y + 50, 2);
+        panim_fade_in_text(scene, lbl, font, white, 2, x1, y1, timeline_cursor, 60);
         
-        panim_scene_add_fade(scene, img, white, timeline_cursor, 60);
-        panim_scene_add_fade(scene, txt, white, timeline_cursor, 60);
         timeline_cursor += 30;
-        panim_scene_add_move(scene, &linel->line.x2, &linel->line.y2, 
-                             x1 - dst_range.w / 4, y1 + 100,
-                             timeline_cursor + 45, 60);
-        panim_scene_add_move(scene, &liner->line.x2, &liner->line.y2, 
-                             x1 + dst_range.w / 4, y1 + 100,
-                             timeline_cursor + 45, 60);
         
         SDL_Rect l_range = (SDL_Rect){
             dst_range.x,

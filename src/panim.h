@@ -134,7 +134,7 @@ typedef struct {
  * Pushes a new image object onto the scene.
  */
 static PAnimObject *
-panim_scene_add_image(PAnimEngine * pnm, PAnimScene * scene,
+panim_scene_add_image(PAnimScene * scene,
                       SDL_Texture * img, SDL_Color mod_color,
                       int center_x, int center_y,
                       int depth_level)
@@ -242,6 +242,51 @@ panim_scene_add_move(PAnimScene * scene, int *x, int *y,
         scene->length_in_frames = anim_end_frame;
     
     buf_push(scene->timeline, anim);
+}
+
+static inline PAnimObject *
+panim_fade_in_image(PAnimScene * scene, SDL_Texture * texture,
+                    int depth_level, int center_x, int center_y,
+                    size_t begin_frame, size_t length)
+{
+    PAnimObject *img = panim_scene_add_image(
+        scene, texture, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0 },
+        center_x, center_y, depth_level);
+    panim_scene_add_fade(
+        scene, img, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF },
+        begin_frame, length);
+    return img;
+}
+
+static inline PAnimObject *
+panim_fade_in_text(PAnimScene * scene, char * text,
+                   TTF_Font * font, SDL_Color color,
+                   int depth_level, int center_x, int center_y,
+                   size_t begin_frame, size_t length)
+{
+    PAnimObject *txt = panim_scene_add_text(
+        scene, font, text, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0 },
+        center_x, center_y, depth_level);
+    panim_scene_add_fade(
+        scene, txt, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF },
+        begin_frame, length);
+    return txt;
+}
+
+static inline PAnimObject *
+panim_draw_line(PAnimScene * scene, SDL_Color color,
+                int depth_level, int x1, int y1, int x2, int y2,
+                size_t begin_frame, size_t length)
+{
+    PAnimObject *line = panim_scene_add_line(
+        scene, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0 },
+        x1, y1, x1, y1, depth_level);
+    
+    panim_scene_add_fade(scene, line, color, begin_frame, 2);
+    panim_scene_add_move(
+        scene, &line->line.x2, &line->line.y2, x2, y2, begin_frame, length);
+    
+    return line;
 }
 
 static int
