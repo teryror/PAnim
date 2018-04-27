@@ -27,52 +27,7 @@ static SDL_Texture * circle;
 static TTF_Font    * font;
 static CodeTree    * huff;
 
-static void
-panim_scene_frame_update(PAnimScene * scene, size_t t)
-{
-    for (PAnimEvent * anim = scene->timeline;
-         anim < scene->timeline + buf_len(scene->timeline);
-         ++anim)
-    {
-        panim_event_tick(anim, t);
-    }
-}
-
-static void
-panim_scene_frame_render(PAnimEngine * pnm, PAnimScene * scene)
-{
-    SDL_Color bg = scene->bg_color;
-    SDL_SetRenderDrawColor(
-        pnm->renderer, bg.r, bg.g, bg.b, bg.a);
-    SDL_RenderClear(pnm->renderer);
-    
-    for (int i = 0; i < buf_len(scene->objects); ++i) {
-        panim_object_draw(pnm, scene->objects[i]);
-    }
-}
-
 // -----------------------
-
-static void print_tree(CodeTree *tree) {
-    if (tree->type == CTT_LEAF) {
-        printf("(%c %d)", tree->sym, tree->freq);
-    } else {
-        printf("{ %d ", tree->freq);
-        print_tree(tree->children.left);
-        printf(" ");
-        print_tree(tree->children.right);
-        printf(" }");
-    }
-}
-
-static void print_forest(CodeTree *forest) {
-    printf("%zd: ", buf_len(forest));
-    for (int i = 0; i < buf_len(forest); ++i) {
-        print_tree(&forest[i]);
-        printf(" ");
-    }
-    printf("\n");
-}
 
 static CodeTree *
 build_huff_tree(char * message) {
@@ -105,7 +60,6 @@ build_huff_tree(char * message) {
     * ... also, we leak all the memory here.
     */
     
-    print_forest(forest);
     while (buf_len(forest) > 1) {
         // Find two least-frequent nodes
         int min1, min2;
@@ -146,8 +100,6 @@ build_huff_tree(char * message) {
             }
             buf__hdr(forest)->len -= 1;
         }
-        
-        print_forest(forest);
     }
     
     return forest;
@@ -179,10 +131,10 @@ add_tree_to_scene(PAnimEngine * pnm, PAnimScene * scene,
         panim_fade_in_image(scene, circle, 1, x1, y1, timeline_cursor, 60);
         panim_draw_line(scene, line_color, 0, x1, y1,
                         x1 - dst_range.w / 4, y1 + 100,
-                        timeline_cursor + 95, 60);
+                        timeline_cursor + 75, 60);
         panim_draw_line(scene, line_color, 0, x1, y1,
                         x1 + dst_range.w / 4, y1 + 100,
-                        timeline_cursor + 95, 60);
+                        timeline_cursor + 75, 60);
         
         char *lbl = (char *) malloc(4);
         snprintf(lbl, 4, "%d", tree->freq);
@@ -220,13 +172,13 @@ int main(int argc, char *argv[]) {
     
     // Populate Scene
     huff = build_huff_tree("ABRACADABRA");
-    SDL_Rect dst_range = (SDL_Rect){
+    /*SDL_Rect dst_range = (SDL_Rect){
         scene.screen_width  / 2 - 570,
         scene.screen_height / 2 - 250,
         1140, 500,
     };
     add_tree_to_scene(&pnm, &scene, huff, dst_range);
-    
+    */
     // Go!
     panim_scene_finalize(&scene);
     

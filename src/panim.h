@@ -111,6 +111,7 @@ typedef struct {
             // initialized during playback when the animation begins
             int x_old;
             int y_old;
+            bool relative;
         } move;
     };
 } PAnimEvent;
@@ -225,7 +226,7 @@ panim_scene_add_fade(PAnimScene * scene,
 
 static void
 panim_scene_add_move(PAnimScene * scene, int *x, int *y,
-                     int target_x, int target_y,
+                     int target_x, int target_y, bool relative_move,
                      size_t begin_frame, size_t length)
 {
     PAnimEvent anim;
@@ -236,6 +237,7 @@ panim_scene_add_move(PAnimScene * scene, int *x, int *y,
     anim.move.y_val = y;
     anim.move.x_target = target_x;
     anim.move.y_target = target_y;
+    anim.move.relative = relative_move;
     
     size_t anim_end_frame = begin_frame + length;
     if (anim_end_frame > scene->length_in_frames)
@@ -284,7 +286,7 @@ panim_draw_line(PAnimScene * scene, SDL_Color color,
     
     panim_scene_add_fade(scene, line, color, begin_frame, 2);
     panim_scene_add_move(
-        scene, &line->line.x2, &line->line.y2, x2, y2, begin_frame, length);
+        scene, &line->line.x2, &line->line.y2, x2, y2, false, begin_frame, length);
     
     return line;
 }
@@ -355,6 +357,11 @@ panim_event_tick(PAnimEvent * anim, size_t t)
             case PNM_EVENT_MOVEMENT: {
                 anim->move.x_old = *anim->move.x_val;
                 anim->move.y_old = *anim->move.y_val;
+                
+                if (anim->move.relative) {
+                    anim->move.x_target += anim->move.x_old;
+                    anim->move.y_target += anim->move.y_old;
+                }
             } break;
             default: __debugbreak();
         }
@@ -631,6 +638,30 @@ panim_scene_render(PAnimEngine * pnm, PAnimScene * scene, char * filename)
     
     //---
     panim_engine_end_preview(pnm);
+}
+
+static inline void
+panim_scene_frame_update(PAnimScene * scene, size_t t)
+{
+    for (PAnimEvent * anim = scene->timeline;
+         anim < scene->timeline + buf_len(scene->timeline);
+         ++anim)
+    {
+        panim_event_tick(anim, t);
+    }
+}
+
+static inline void
+panim_scene_frame_render(PAnimEngine * pnm, PAnimScene * scene)
+{
+    SDL_Color bg = scene->bg_color;
+    SDL_SetRenderDrawColor(
+        pnm->renderer, bg.r, bg.g, bg.b, bg.a);
+    SDL_RenderClear(pnm->renderer);
+    
+    for (int i = 0; i < buf_len(scene->objects); ++i) {
+        panim_object_draw(pnm, scene->objects[i]);
+    }
 }
 
 /* 
