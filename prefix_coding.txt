@@ -79,11 +79,6 @@ Information Theory (Bonus Video?):
      rounding probabilities to negative powers of two
 
 Personal Research:
-- an algorithm for finding codelens that works by shifting down symcounts and
-  incrementing codelens of 'optimal' symbol; try finding the optimal symbol to
-  do this with by using a priority queue
-  -> what's the 'priority' metric in this case?
-  -> can we restrict the codelens and still get optimal coding?
 - an algorithm for finding codelens that works by sorting symbols by frequency
   and determining codelens at the same time (i.e. let yourself be inspired by
   quicksort)
