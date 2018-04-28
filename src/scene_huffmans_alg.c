@@ -15,9 +15,19 @@ typedef struct CodeTree {
     CodeTreeType type;
     int freq;
     union {
-        char sym;
         struct {
+            char symbol;
+            PAnimObject * bgi;
+            PAnimObject * txt;
+            PAnimObject * cnt;
+        } sym;
+        struct {
+            PAnimObject * node_bg;
+            PAnimObject * node_txt;
+            
+            PAnimObject * linel;
             struct CodeTree * left;
+            PAnimObject * liner;
             struct CodeTree * right;
         } children;
     };
@@ -29,8 +39,57 @@ static CodeTree    * huff;
 
 // -----------------------
 
+static size_t timeline_cursor = 10;
+
+static void
+move_tree_down(PAnimScene * scene, CodeTree * tree,
+               size_t begin_frame, size_t length)
+{
+    if (tree->type == CTT_LEAF) {
+        panim_scene_add_move(
+            scene, &tree->sym.bgi->img.location.x, &tree->sym.bgi->img.location.y,
+            0, 100, true, begin_frame, length);
+        panim_scene_add_move(
+            scene, &tree->sym.txt->txt.center_x, &tree->sym.txt->txt.center_y,
+            0, 100, true, begin_frame, length);
+        panim_scene_add_move(
+            scene, &tree->sym.cnt->txt.center_x, &tree->sym.cnt->txt.center_y,
+            0, 100, true, begin_frame, length);
+    } else if (tree->type == CTT_INTERNAL) {
+        panim_scene_add_move(
+            scene, &tree->children.node_bg->img.location.x,
+            &tree->children.node_bg->img.location.y,
+            0, 100, true, begin_frame, length);
+        panim_scene_add_move(
+            scene, &tree->children.node_txt->txt.center_x,
+            &tree->children.node_txt->txt.center_y,
+            0, 100, true, begin_frame, length);
+        panim_scene_add_move(
+            scene, &tree->children.linel->line.x1,
+            &tree->children.linel->line.y1,
+            0, 100, true, begin_frame, length);
+        panim_scene_add_move(
+            scene, &tree->children.linel->line.x2,
+            &tree->children.linel->line.y2,
+            0, 100, true, begin_frame, length);
+        panim_scene_add_move(
+            scene, &tree->children.liner->line.x1,
+            &tree->children.liner->line.y1,
+            0, 100, true, begin_frame, length);
+        panim_scene_add_move(
+            scene, &tree->children.liner->line.x2,
+            &tree->children.liner->line.y2,
+            0, 100, true, begin_frame, length);
+        
+        move_tree_down(scene, tree->children.left, begin_frame, length);
+        move_tree_down(scene, tree->children.right, begin_frame, length);
+    }
+}
+
 static CodeTree *
-build_huff_tree(char * message) {
+build_huff_tree(PAnimScene * scene, char * message) {
+    SDL_Color line_color = (SDL_Color){ 0xC8, 0xC8, 0xC8, 0xFF };
+    
     // Count symbol frequencies
     int freqs[256] = {0};
     while (*message) freqs[*message++]++;
@@ -42,8 +101,27 @@ build_huff_tree(char * message) {
             CodeTree new_node;
             new_node.type = CTT_LEAF;
             new_node.freq = freqs[i];
-            new_node.sym  = (char)i;
+            new_node.sym.symbol  = (char)i;
             
+            new_node.sym.bgi = panim_fade_in_image(
+                scene, circle, 1, 340 + 100 * ((int)buf_len(forest) + 1), 100,
+                timeline_cursor, 30);
+            
+            char *lbl = (char *) malloc(2);
+            lbl[0] = (char)i; lbl[1] = 0;
+            new_node.sym.txt = panim_fade_in_text(
+                scene, lbl, font, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF }, 2,
+                340 + 100 * ((int)buf_len(forest) + 1), 100,
+                timeline_cursor, 30);
+            
+            lbl = (char *) malloc(2);
+            snprintf(lbl, 2, "%d", freqs[i]);
+            new_node.sym.cnt = panim_fade_in_text(
+                scene, lbl, font, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF }, 2,
+                340 + 100 * ((int)buf_len(forest) + 1), 170,
+                timeline_cursor, 30);
+            
+            timeline_cursor += 15;
             buf_push(forest, new_node);
         }
     }
@@ -86,76 +164,54 @@ build_huff_tree(char * message) {
         *new_node.children.left  = forest[min1];
         *new_node.children.right = forest[min2];
         
+        move_tree_down(scene, &forest[min1], timeline_cursor, 30);
+        move_tree_down(scene, &forest[min2], timeline_cursor, 30);
+        timeline_cursor += 30;
+        
+        int xl, xr, write_idx;
         // Remove old nodes and insert new node
         if (min1 < min2) {
-            forest[min1] = new_node;
+            xl = (forest[min1].type == CTT_LEAF) ? forest[min1].sym.txt->txt.center_x : forest[min1].children.node_txt->txt.center_x;
+            xr = (forest[min2].type == CTT_LEAF) ? forest[min2].sym.txt->txt.center_x : forest[min2].children.node_txt->txt.center_x;
+            write_idx = min1;
+            
             for (int i = min2 + 1; i < buf_len(forest); ++i) {
                 forest[i - 1] = forest[i];
             }
             buf__hdr(forest)->len -= 1;
         } else {
-            forest[min2] = new_node;
+            xl = (forest[min2].type == CTT_LEAF) ? forest[min2].sym.txt->txt.center_x : forest[min2].children.node_txt->txt.center_x;
+            xr = (forest[min1].type == CTT_LEAF) ? forest[min1].sym.txt->txt.center_x : forest[min1].children.node_txt->txt.center_x;
+            write_idx = min2;
+            
             for (int i = min1 + 1; i < buf_len(forest); ++i) {
                 forest[i - 1] = forest[i];
             }
             buf__hdr(forest)->len -= 1;
         }
+        
+        new_node.children.node_bg = panim_fade_in_image(
+            scene, circle, 1, (xl + xr) / 2, 100, timeline_cursor, 60);
+        
+        char *lbl = (char *) malloc(4);
+        snprintf(lbl, 4, "%d", new_node.freq);
+        new_node.children.node_txt = panim_fade_in_text(
+            scene, lbl, font, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF }, 2,
+            (xl + xr) / 2, 100, timeline_cursor, 60);
+        timeline_cursor += 45;
+        
+        new_node.children.linel = panim_draw_line(
+            scene, line_color, 0, (xl + xr) / 2, 100, xl, 200,
+            timeline_cursor, 60);
+        new_node.children.liner = panim_draw_line(
+            scene, line_color, 0, (xl + xr) / 2, 100, xr, 200,
+            timeline_cursor, 60);
+        
+        forest[write_idx] = new_node;
+        timeline_cursor += 60;
     }
     
     return forest;
-}
-
-static size_t timeline_cursor = 10;
-
-static void
-add_tree_to_scene(PAnimEngine * pnm, PAnimScene * scene,
-                  CodeTree * tree,
-                  SDL_Rect dst_range)
-{
-    SDL_Color white = (SDL_Color) { 0xFF, 0xFF, 0xFF, 0xFF };
-    
-    int x1 = dst_range.x + dst_range.w / 2;
-    int y1 = dst_range.y + 50;
-    
-    if (tree->type == CTT_LEAF) {
-        char *lbl = (char *) malloc(2);
-        lbl[0] = tree->sym; lbl[1] = 0;
-        
-        panim_fade_in_text(scene, lbl, font, white, 2, x1, y1, timeline_cursor, 60);
-        panim_fade_in_image(scene, circle, 1, x1, y1, timeline_cursor, 60);
-        
-        timeline_cursor += 30;
-    } else if (tree->type == CTT_INTERNAL) {
-        SDL_Color line_color = (SDL_Color){ 204, 204, 204, 255 };
-        
-        panim_fade_in_image(scene, circle, 1, x1, y1, timeline_cursor, 60);
-        panim_draw_line(scene, line_color, 0, x1, y1,
-                        x1 - dst_range.w / 4, y1 + 100,
-                        timeline_cursor + 75, 60);
-        panim_draw_line(scene, line_color, 0, x1, y1,
-                        x1 + dst_range.w / 4, y1 + 100,
-                        timeline_cursor + 75, 60);
-        
-        char *lbl = (char *) malloc(4);
-        snprintf(lbl, 4, "%d", tree->freq);
-        panim_fade_in_text(scene, lbl, font, white, 2, x1, y1, timeline_cursor, 60);
-        
-        timeline_cursor += 30;
-        
-        SDL_Rect l_range = (SDL_Rect){
-            dst_range.x,
-            dst_range.y + 100,
-            dst_range.w / 2,
-            dst_range.h - 100,
-        }; add_tree_to_scene(pnm, scene, tree->children.left, l_range);
-        
-        SDL_Rect r_range = (SDL_Rect){
-            dst_range.x + dst_range.w / 2,
-            dst_range.y + 100,
-            dst_range.w / 2,
-            dst_range.h - 100,
-        }; add_tree_to_scene(pnm, scene, tree->children.right, r_range);
-    }
 }
 
 int main(int argc, char *argv[]) {
@@ -171,14 +227,8 @@ int main(int argc, char *argv[]) {
     font   = TTF_OpenFont("bin/Oswald-Bold.ttf", 36);
     
     // Populate Scene
-    huff = build_huff_tree("ABRACADABRA");
-    /*SDL_Rect dst_range = (SDL_Rect){
-        scene.screen_width  / 2 - 570,
-        scene.screen_height / 2 - 250,
-        1140, 500,
-    };
-    add_tree_to_scene(&pnm, &scene, huff, dst_range);
-    */
+    huff = build_huff_tree(&scene, "ABRACADABRA");
+    
     // Go!
     panim_scene_finalize(&scene);
     
