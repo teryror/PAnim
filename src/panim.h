@@ -65,6 +65,12 @@ typedef enum PAnimObjType {
     PNM_OBJ_LINE,
 } PAnimObjType;
 
+typedef enum PAnimTextAlignment {
+    PNM_TXT_ALIGN_LEFT,
+    PNM_TXT_ALIGN_CENTER,
+    PNM_TXT_ALIGN_RIGHT,
+} PAnimTextAlignment;
+
 typedef struct {
     PAnimObjType type;
     int depth_level;
@@ -79,6 +85,7 @@ typedef struct {
             char * data;
             int center_x;
             int center_y;
+            PAnimTextAlignment align;
         } txt;
         struct {
             int x1, y1;
@@ -172,6 +179,7 @@ panim_scene_add_text(PAnimScene * scene,
                      TTF_Font * font, char * text,
                      SDL_Color color,
                      int center_x, int center_y,
+                     PAnimTextAlignment alignment,
                      int depth_level)
 {
     PAnimObject *obj = (PAnimObject *) malloc(sizeof(PAnimObject));
@@ -182,6 +190,7 @@ panim_scene_add_text(PAnimScene * scene,
     obj->txt.data = text;
     obj->txt.center_x = center_x;
     obj->txt.center_y = center_y;
+    obj->txt.align = alignment;
     
     buf_push(scene->objects, obj);
     return obj;
@@ -291,11 +300,12 @@ static inline PAnimObject *
 panim_fade_in_text(PAnimScene * scene, char * text,
                    TTF_Font * font, SDL_Color color,
                    int depth_level, int center_x, int center_y,
+                   PAnimTextAlignment alignment,
                    size_t begin_frame, size_t length)
 {
     PAnimObject *txt = panim_scene_add_text(
         scene, font, text, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0 },
-        center_x, center_y, depth_level);
+        center_x, center_y, alignment, depth_level);
     panim_scene_add_fade(
         scene, txt, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF },
         begin_frame, length);
@@ -466,11 +476,27 @@ panim_object_draw(PAnimEngine * pnm, PAnimObject * obj)
             SDL_SetTextureAlphaMod(text, obj->color.a);
             
             int w, h; SDL_QueryTexture(text, NULL, NULL, &w, &h);
-            SDL_Rect location = (SDL_Rect){
-                .x = obj->txt.center_x - w/2,
-                .y = obj->txt.center_y - h/2,
-                .w = w, .h = h,
-            };
+            SDL_Rect location;
+            switch (obj->txt.align) {
+                case PNM_TXT_ALIGN_LEFT:
+                location = (SDL_Rect){
+                    .x = obj->txt.center_x,
+                    .y = obj->txt.center_y - h/2,
+                    .w = w, .h = h,
+                }; break;
+                case PNM_TXT_ALIGN_CENTER:
+                location = (SDL_Rect){
+                    .x = obj->txt.center_x - w/2,
+                    .y = obj->txt.center_y - h/2,
+                    .w = w, .h = h,
+                }; break;
+                case PNM_TXT_ALIGN_RIGHT:
+                location = (SDL_Rect){
+                    .x = obj->txt.center_x - w,
+                    .y = obj->txt.center_y - h/2,
+                    .w = w, .h = h,
+                }; break;
+            }
             
             SDL_RenderCopy(pnm->renderer, text, NULL, &location);
         } break;

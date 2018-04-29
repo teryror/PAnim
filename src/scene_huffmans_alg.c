@@ -127,14 +127,14 @@ build_huff_tree(PAnimScene * scene, char * message) {
             lbl[0] = (char)i; lbl[1] = 0;
             new_node.sym.txt = panim_fade_in_text(
                 scene, lbl, font, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF }, 2,
-                340 + 100 * ((int)buf_len(forest) + 1), 100,
+                340 + 100 * ((int)buf_len(forest) + 1), 100, PNM_TXT_ALIGN_CENTER,
                 timeline_cursor, 30);
             
             lbl = (char *) malloc(2);
             snprintf(lbl, 2, "%d", freqs[i]);
             new_node.sym.cnt = panim_fade_in_text(
                 scene, lbl, font, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF }, 2,
-                340 + 100 * ((int)buf_len(forest) + 1), 170,
+                340 + 100 * ((int)buf_len(forest) + 1), 170, PNM_TXT_ALIGN_CENTER,
                 timeline_cursor, 30);
             
             timeline_cursor += 15;
@@ -177,8 +177,6 @@ build_huff_tree(PAnimScene * scene, char * message) {
         new_node.freq = forest[min1].freq + forest[min2].freq;
         new_node.children.left  = (CodeTree *) malloc(sizeof(CodeTree));
         new_node.children.right = (CodeTree *) malloc(sizeof(CodeTree));
-        *new_node.children.left  = forest[min1];
-        *new_node.children.right = forest[min2];
         
         move_tree(scene, &forest[min1], 0, 100, timeline_cursor, 30);
         move_tree(scene, &forest[min2], 0, 100, timeline_cursor, 30);
@@ -187,6 +185,9 @@ build_huff_tree(PAnimScene * scene, char * message) {
         int xl, xr, write_idx;
         // Remove old nodes and insert new node
         if (min1 < min2) {
+            *new_node.children.left  = forest[min1];
+            *new_node.children.right = forest[min2];
+            
             xl = (forest[min1].type == CTT_LEAF) ? forest[min1].sym.txt->txt.center_x : forest[min1].children.node_txt->txt.center_x;
             xr = (forest[min2].type == CTT_LEAF) ? forest[min2].sym.txt->txt.center_x : forest[min2].children.node_txt->txt.center_x;
             write_idx = min1;
@@ -196,6 +197,9 @@ build_huff_tree(PAnimScene * scene, char * message) {
             }
             buf__hdr(forest)->len -= 1;
         } else {
+            *new_node.children.left  = forest[min2];
+            *new_node.children.right = forest[min1];
+            
             xl = (forest[min2].type == CTT_LEAF) ? forest[min2].sym.txt->txt.center_x : forest[min2].children.node_txt->txt.center_x;
             xr = (forest[min1].type == CTT_LEAF) ? forest[min1].sym.txt->txt.center_x : forest[min1].children.node_txt->txt.center_x;
             write_idx = min2;
@@ -213,7 +217,7 @@ build_huff_tree(PAnimScene * scene, char * message) {
         snprintf(lbl, 4, "%d", new_node.freq);
         new_node.children.node_txt = panim_fade_in_text(
             scene, lbl, font, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF }, 2,
-            (xl + xr) / 2, 100, timeline_cursor, 60);
+            (xl + xr) / 2, 100, PNM_TXT_ALIGN_CENTER, timeline_cursor, 60);
         timeline_cursor += 45;
         
         new_node.children.linel = panim_draw_line(
@@ -236,7 +240,7 @@ add_tree_labels(PAnimScene * scene, CodeTree * tree) {
     
     tree->children.lbl_l = panim_fade_in_text(
         scene, "0", font, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF },
-        4, 0, 0, timeline_cursor, 20);
+        4, 0, 0, PNM_TXT_ALIGN_CENTER, timeline_cursor, 20);
     panim_colocate(
         scene, tree->children.lbl_l,
         tree->children.linel,
@@ -245,7 +249,7 @@ add_tree_labels(PAnimScene * scene, CodeTree * tree) {
     timeline_cursor += 10;
     tree->children.lbl_r = panim_fade_in_text(
         scene, "1", font, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF },
-        4, 0, 0, timeline_cursor, 20);
+        4, 0, 0, PNM_TXT_ALIGN_CENTER, timeline_cursor, 20);
     panim_colocate(
         scene, tree->children.lbl_r,
         tree->children.liner, 
@@ -255,6 +259,48 @@ add_tree_labels(PAnimScene * scene, CodeTree * tree) {
     timeline_cursor += 10;
     add_tree_labels(scene, tree->children.right);
     timeline_cursor -= 30;
+}
+
+static int code_word_table_y = 100;
+
+static void
+add_code_words(PAnimScene * scene, CodeTree * tree, int codeword, int codelen) {
+    if (tree->type == CTT_LEAF) {
+        char * code = (char *) malloc(codelen + 4);
+        code[0] = tree->sym.symbol;
+        code[1] = ':';
+        code[2] = ' ';
+        for (int i = 0; i < codelen; ++i) {
+            if (codeword & (1 << (codelen - 1 - i))) {
+                code[3+i] = '1';
+            } else {
+                code[3+i] = '0';
+            }
+        }
+        
+        panim_fade_in_text(scene, code, font, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF },
+                           5, 900, code_word_table_y, PNM_TXT_ALIGN_LEFT, timeline_cursor, 60);
+        code_word_table_y += 100;
+        timeline_cursor += 30;
+    } else {
+        panim_scene_add_fade(scene, tree->children.linel,
+                             (SDL_Color){ 0xFF, 0, 0, 0xFF },
+                             timeline_cursor, 20);
+        timeline_cursor += 20;
+        add_code_words(scene, tree->children.left,  codeword * 2, codelen + 1);
+        panim_scene_add_fade(scene, tree->children.linel,
+                             (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF },
+                             timeline_cursor, 20);
+        panim_scene_add_fade(scene, tree->children.liner,
+                             (SDL_Color){ 0xFF, 0, 0, 0xFF },
+                             timeline_cursor + 20, 20);
+        timeline_cursor += 40;
+        add_code_words(scene, tree->children.right, codeword * 2 + 1, codelen + 1);
+        panim_scene_add_fade(scene, tree->children.liner,
+                             (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF },
+                             timeline_cursor, 20);
+        timeline_cursor += 20;
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -275,7 +321,10 @@ int main(int argc, char *argv[]) {
     add_tree_labels(&scene, huff);
     
     timeline_cursor = scene.length_in_frames + 30;
-    move_tree(&scene, huff, -300, 0, timeline_cursor, 30);
+    move_tree(&scene, huff, -250, 0, timeline_cursor, 30);
+    
+    timeline_cursor = scene.length_in_frames + 30;
+    add_code_words(&scene, huff, 0, 0);
     
     // Go!
     panim_scene_finalize(&scene);
