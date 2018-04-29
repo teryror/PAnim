@@ -26,8 +26,10 @@ typedef struct CodeTree {
             PAnimObject * node_txt;
             
             PAnimObject * linel;
+            PAnimObject * lbl_l;
             struct CodeTree * left;
             PAnimObject * liner;
+            PAnimObject * lbl_r;
             struct CodeTree * right;
         } children;
     };
@@ -41,47 +43,62 @@ static TTF_Font    * font;
 static size_t timeline_cursor = 10;
 
 static void
-move_tree_down(PAnimScene * scene, CodeTree * tree,
-               size_t begin_frame, size_t length)
+move_tree(PAnimScene * scene, CodeTree * tree,
+          int offset_x, int offset_y,
+          size_t begin_frame, size_t length)
 {
     if (tree->type == CTT_LEAF) {
         panim_scene_add_move(
             scene, &tree->sym.bgi->img.location.x, &tree->sym.bgi->img.location.y,
-            0, 100, true, begin_frame, length);
+            offset_x, offset_y, true, begin_frame, length);
         panim_scene_add_move(
             scene, &tree->sym.txt->txt.center_x, &tree->sym.txt->txt.center_y,
-            0, 100, true, begin_frame, length);
+            offset_x, offset_y, true, begin_frame, length);
         panim_scene_add_move(
             scene, &tree->sym.cnt->txt.center_x, &tree->sym.cnt->txt.center_y,
-            0, 100, true, begin_frame, length);
+            offset_x, offset_y, true, begin_frame, length);
     } else if (tree->type == CTT_INTERNAL) {
         panim_scene_add_move(
             scene, &tree->children.node_bg->img.location.x,
             &tree->children.node_bg->img.location.y,
-            0, 100, true, begin_frame, length);
+            offset_x, offset_y, true, begin_frame, length);
         panim_scene_add_move(
             scene, &tree->children.node_txt->txt.center_x,
             &tree->children.node_txt->txt.center_y,
-            0, 100, true, begin_frame, length);
+            offset_x, offset_y, true, begin_frame, length);
+        if (tree->children.lbl_l) {
+            panim_scene_add_move(
+                scene, &tree->children.lbl_l->txt.center_x,
+                &tree->children.lbl_l->txt.center_y,
+                offset_x, offset_y, true, begin_frame, length);
+        }
         panim_scene_add_move(
             scene, &tree->children.linel->line.x1,
             &tree->children.linel->line.y1,
-            0, 100, true, begin_frame, length);
+            offset_x, offset_y, true, begin_frame, length);
         panim_scene_add_move(
             scene, &tree->children.linel->line.x2,
             &tree->children.linel->line.y2,
-            0, 100, true, begin_frame, length);
+            offset_x, offset_y, true, begin_frame, length);
+        if (tree->children.lbl_r) {
+            panim_scene_add_move(
+                scene, &tree->children.lbl_r->txt.center_x,
+                &tree->children.lbl_r->txt.center_y,
+                offset_x, offset_y, true, begin_frame, length);
+        }
         panim_scene_add_move(
             scene, &tree->children.liner->line.x1,
             &tree->children.liner->line.y1,
-            0, 100, true, begin_frame, length);
+            offset_x, offset_y, true, begin_frame, length);
         panim_scene_add_move(
             scene, &tree->children.liner->line.x2,
             &tree->children.liner->line.y2,
-            0, 100, true, begin_frame, length);
+            offset_x, offset_y, true, begin_frame, length);
         
-        move_tree_down(scene, tree->children.left, begin_frame, length);
-        move_tree_down(scene, tree->children.right, begin_frame, length);
+        move_tree(
+            scene, tree->children.left, offset_x, offset_y, begin_frame, length);
+        move_tree(
+            scene, tree->children.right, offset_x, offset_y, begin_frame, length);
     }
 }
 
@@ -155,7 +172,7 @@ build_huff_tree(PAnimScene * scene, char * message) {
         }
         
         // Combine nodes
-        CodeTree new_node;
+        CodeTree new_node = {0};
         new_node.type = CTT_INTERNAL;
         new_node.freq = forest[min1].freq + forest[min2].freq;
         new_node.children.left  = (CodeTree *) malloc(sizeof(CodeTree));
@@ -163,8 +180,8 @@ build_huff_tree(PAnimScene * scene, char * message) {
         *new_node.children.left  = forest[min1];
         *new_node.children.right = forest[min2];
         
-        move_tree_down(scene, &forest[min1], timeline_cursor, 30);
-        move_tree_down(scene, &forest[min2], timeline_cursor, 30);
+        move_tree(scene, &forest[min1], 0, 100, timeline_cursor, 30);
+        move_tree(scene, &forest[min2], 0, 100, timeline_cursor, 30);
         timeline_cursor += 30;
         
         int xl, xr, write_idx;
@@ -217,22 +234,27 @@ static void
 add_tree_labels(PAnimScene * scene, CodeTree * tree) {
     if (tree->type == CTT_LEAF) return;
     
-    PAnimObject *l = panim_fade_in_text(
+    tree->children.lbl_l = panim_fade_in_text(
         scene, "0", font, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF },
-        4, 0, 0, timeline_cursor, 30);
-    panim_colocate(scene, l, tree->children.linel, -25, -10, timeline_cursor);
+        4, 0, 0, timeline_cursor, 20);
+    panim_colocate(
+        scene, tree->children.lbl_l,
+        tree->children.linel,
+        -25, -10, timeline_cursor);
     
-    timeline_cursor += 15;
-    PAnimObject *r = panim_fade_in_text(
+    timeline_cursor += 10;
+    tree->children.lbl_r = panim_fade_in_text(
         scene, "1", font, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF },
-        4, 0, 0, timeline_cursor, 30);
-    panim_colocate(scene, r, tree->children.liner,  25, -10, timeline_cursor);
+        4, 0, 0, timeline_cursor, 20);
+    panim_colocate(
+        scene, tree->children.lbl_r,
+        tree->children.liner, 
+        25, -10, timeline_cursor);
     
-    timeline_cursor += 15;
     add_tree_labels(scene, tree->children.left);
-    timeline_cursor += 30;
+    timeline_cursor += 10;
     add_tree_labels(scene, tree->children.right);
-    timeline_cursor -= 60;
+    timeline_cursor -= 30;
 }
 
 int main(int argc, char *argv[]) {
@@ -249,8 +271,11 @@ int main(int argc, char *argv[]) {
     
     // Populate Scene
     CodeTree * huff = build_huff_tree(&scene, "ABRACADABRA");
-    timeline_cursor = scene.length_in_frames + 60;
+    timeline_cursor = scene.length_in_frames + 30;
     add_tree_labels(&scene, huff);
+    
+    timeline_cursor = scene.length_in_frames + 30;
+    move_tree(&scene, huff, -300, 0, timeline_cursor, 30);
     
     // Go!
     panim_scene_finalize(&scene);
