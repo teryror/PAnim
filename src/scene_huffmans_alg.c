@@ -35,7 +35,6 @@ typedef struct CodeTree {
 
 static SDL_Texture * circle;
 static TTF_Font    * font;
-static CodeTree    * huff;
 
 // -----------------------
 
@@ -214,6 +213,28 @@ build_huff_tree(PAnimScene * scene, char * message) {
     return forest;
 }
 
+static void
+add_tree_labels(PAnimScene * scene, CodeTree * tree) {
+    if (tree->type == CTT_LEAF) return;
+    
+    PAnimObject *l = panim_fade_in_text(
+        scene, "0", font, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF },
+        4, 0, 0, timeline_cursor, 30);
+    panim_colocate(scene, l, tree->children.linel, -25, -10, timeline_cursor);
+    
+    timeline_cursor += 15;
+    PAnimObject *r = panim_fade_in_text(
+        scene, "1", font, (SDL_Color){ 0xFF, 0xFF, 0xFF, 0xFF },
+        4, 0, 0, timeline_cursor, 30);
+    panim_colocate(scene, r, tree->children.liner,  25, -10, timeline_cursor);
+    
+    timeline_cursor += 15;
+    add_tree_labels(scene, tree->children.left);
+    timeline_cursor += 30;
+    add_tree_labels(scene, tree->children.right);
+    timeline_cursor -= 60;
+}
+
 int main(int argc, char *argv[]) {
     // Initialize PAnim
     PAnimScene scene = {0};
@@ -227,7 +248,9 @@ int main(int argc, char *argv[]) {
     font   = TTF_OpenFont("bin/Oswald-Bold.ttf", 36);
     
     // Populate Scene
-    huff = build_huff_tree(&scene, "ABRACADABRA");
+    CodeTree * huff = build_huff_tree(&scene, "ABRACADABRA");
+    timeline_cursor = scene.length_in_frames + 60;
+    add_tree_labels(&scene, huff);
     
     // Go!
     panim_scene_finalize(&scene);

@@ -91,6 +91,7 @@ typedef enum PAnimEventType {
     PNM_EVENT_INVALID,
     PNM_EVENT_COLOR_FADE,
     PNM_EVENT_MOVEMENT,
+    PNM_EVENT_COLOCATE,
 } PAnimEventType;
 
 typedef struct {
@@ -113,6 +114,12 @@ typedef struct {
             int y_old;
             bool relative;
         } move;
+        struct {
+            PAnimObject * src;
+            PAnimObject * dst;
+            int x_offset;
+            int y_offset;
+        } copy_pos;
     };
 } PAnimEvent;
 
@@ -246,6 +253,26 @@ panim_scene_add_move(PAnimScene * scene, int *x, int *y,
     buf_push(scene->timeline, anim);
 }
 
+static void
+panim_colocate(PAnimScene * scene, PAnimObject * dst, PAnimObject * src,
+               int x_offset, int y_offset, size_t begin_frame)
+{
+    PAnimEvent anim;
+    anim.type = PNM_EVENT_COLOCATE;
+    anim.begin_frame = begin_frame;
+    anim.length = 0;
+    anim.copy_pos.x_offset = x_offset;
+    anim.copy_pos.y_offset = y_offset;
+    anim.copy_pos.dst = dst;
+    anim.copy_pos.src = src;
+    
+    size_t anim_end_frame = begin_frame + 1;
+    if (anim_end_frame > scene->length_in_frames)
+        scene->length_in_frames = anim_end_frame;
+    
+    buf_push(scene->timeline, anim);
+}
+
 static inline PAnimObject *
 panim_fade_in_image(PAnimScene * scene, SDL_Texture * texture,
                     int depth_level, int center_x, int center_y,
@@ -361,6 +388,34 @@ panim_event_tick(PAnimEvent * anim, size_t t)
                 if (anim->move.relative) {
                     anim->move.x_target += anim->move.x_old;
                     anim->move.y_target += anim->move.y_old;
+                }
+            } break;
+            case PNM_EVENT_COLOCATE: {
+                PAnimObject *src = anim->copy_pos.src;
+                PAnimObject *dst = anim->copy_pos.dst;
+                
+                int new_x = anim->copy_pos.x_offset;
+                int new_y = anim->copy_pos.y_offset;
+                if (src->type == PNM_OBJ_IMAGE) {
+                    new_x += src->img.location.x + src->img.location.w / 2;
+                    new_y += src->img.location.y + src->img.location.h / 2;
+                } else if (src->type == PNM_OBJ_TEXT) {
+                    new_x += src->txt.center_x;
+                    new_y += src->txt.center_y;
+                } else if (src->type == PNM_OBJ_LINE) {
+                    new_x += (src->line.x1 + src->line.x2) / 2;
+                    new_y += (src->line.y1 + src->line.y2) / 2;
+                }
+                
+                if (dst->type == PNM_OBJ_IMAGE) {
+                    dst->img.location.x = new_x - dst->img.location.w / 2;
+                    dst->img.location.y = new_y - dst->img.location.h / 2;
+                } else if (dst->type == PNM_OBJ_TEXT) {
+                    dst->txt.center_x = new_x;
+                    dst->txt.center_y = new_y;
+                } else if (dst->type == PNM_OBJ_LINE) {
+                    // Unclear what this would even be used for...?
+                    __debugbreak();
                 }
             } break;
             default: __debugbreak();
