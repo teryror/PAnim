@@ -45,14 +45,25 @@ Prefix Coding II (?)
      full code tree from it, so exact same number of degrees of freedom
   -> trying to send symbol frequencies instead is even worse (multiple
      frequency distributions will generate same tree, so even _more_ freedom!)
-  -> solution: devise a ruleset for how the nodes in each level should be
-     ordered <=> only send codelens => _canonical_ Huffman coding
+  -> solution: devise a ruleset for how the code tree should be structured given
+     only the codelens (since that's the minimum amount of info you need for
+     to retain optimal coding!)
+- that ruleset is canonical coding:
+  - shuffle the code tree around such that leafs when traversed left to right
+    are at non-decreasing depth; leafs at the same depth are sorted
+    alphabetically
+  - the left-most leaf (i.e. least frequent symbol) has to be assigned a
+    codeword of all zeroes (obvious)
+  - within the same depth (i.e. codelen), codewords are sequential binaries
+  - at codelen boundaries, the left-most leaf _must_ be a child (or grand-child,
+    etc) of what would have been the next leaf if there were no codelen boundary
+    -> the sequentialy next codelen is shifted up by the difference in codelen,
+       the zero-fill is correct behaviour (because the first leaf has to be the
+       left-most one in the subtree)
 - introduce an algorithm that produces only codelens, no full codewords ???!!
   -> will probably require the Kraft inequality: explain in terms of binary
      trees / recursive summing / exponential falloff of value as you go down
      the tree levels
-- introduce canocial coding ???!!
-  -> look at canonical code trees and maybe binary tree indexing (?)
 
 Prefix Coding III (?)
 - fast (table-driven) decoding -> straight forward to animate, yay!
