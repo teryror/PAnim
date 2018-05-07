@@ -524,7 +524,7 @@ panim_engine_begin_preview(PAnimScene * scene)
     
     PAnimEngine pnm = {0};
     pnm.window = SDL_CreateWindow(
-        "Hello, SDL!",
+        "PAnim",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         scene->screen_width,
@@ -684,7 +684,14 @@ panim_scene_render(PAnimEngine * pnm, PAnimScene * scene, char * filename)
     // Main Loop
     // 
     
+    char title_buffer[1024];
+    
     for (size_t t = 0; t < scene->length_in_frames; ++t) {
+        snprintf(title_buffer, 1024, "PAnim - Rendering (%zd / %zd)",
+                 t, scene->length_in_frames);
+        SDL_SetWindowTitle(pnm->window, title_buffer);
+        
+        
         panim_scene_frame_update(scene, t);
         panim_scene_frame_render(pnm, scene);
         
@@ -752,6 +759,8 @@ panim_scene_frame_render(PAnimEngine * pnm, PAnimScene * scene)
 static void
 panim_scene_play(PAnimEngine * pnm, PAnimScene * scene)
 {
+    char title_buffer[1024];
+    
     bool paused = false;
     size_t playback_speed = 1;
     
@@ -778,6 +787,10 @@ panim_scene_play(PAnimEngine * pnm, PAnimScene * scene)
                 } break;
             }
         }
+        
+        snprintf(title_buffer, 1024, "PAnim - Preview (%zd / %zd)",
+                 t, scene->length_in_frames);
+        SDL_SetWindowTitle(pnm->window, title_buffer);
         
         if (!paused) for (size_t i = 0; i < playback_speed; ++i) {
             panim_scene_frame_update(scene, t++);
