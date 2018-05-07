@@ -124,7 +124,7 @@ static int code_word_table_y = 100;
 static void
 add_code_words(PAnimScene * scene, CodeTree * tree, int codeword, int codelen) {
     if (tree->type == CTT_LEAF) {
-        char * code = (char *) malloc(codelen + 4);
+        char * code = (char *) calloc(codelen + 4, 1);
         code[0] = tree->sym.symbol;
         code[1] = ':';
         code[2] = ' ';
