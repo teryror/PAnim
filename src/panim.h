@@ -4,6 +4,7 @@ Notice: No warranty is offered or implied; use this code at your own risk.
 *******************************************************************************/
 
 #include "assert.h"
+#include "stdbool.h"
 #include "stdio.h"
 #include "stdint.h"
 
