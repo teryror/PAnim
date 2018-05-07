@@ -752,10 +752,37 @@ panim_scene_frame_render(PAnimEngine * pnm, PAnimScene * scene)
 static void
 panim_scene_play(PAnimEngine * pnm, PAnimScene * scene)
 {
-    for (size_t t = 0; t < scene->length_in_frames; ++t) {
+    bool paused = false;
+    size_t playback_speed = 1;
+    
+    for (size_t t = 0; t < scene->length_in_frames;) {
         Uint32 ticks_at_start_of_frame = SDL_GetTicks();
         
-        panim_scene_frame_update(scene, t);
+        SDL_Event event;
+        if (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) goto end;
+            if (event.type == SDL_KEYUP) switch (event.key.keysym.sym) {
+                case SDLK_ESCAPE: {
+                    goto end;
+                } break;
+                case SDLK_SPACE: case 'k': {
+                    paused = !paused;
+                } break;
+                case 'l': {
+                    if (playback_speed < 4)
+                        playback_speed += 1;
+                } break;
+                case 'j': {
+                    if (playback_speed > 1)
+                        playback_speed -= 1;
+                } break;
+            }
+        }
+        
+        if (!paused) for (size_t i = 0; i < playback_speed; ++i) {
+            panim_scene_frame_update(scene, t++);
+        }
+        
         panim_scene_frame_render(pnm, scene);
         
         SDL_RenderPresent(pnm->renderer);
@@ -765,5 +792,5 @@ panim_scene_play(PAnimEngine * pnm, PAnimScene * scene)
         }
     }
     
-    panim_engine_end_preview(pnm);
+    end: panim_engine_end_preview(pnm);
 }
