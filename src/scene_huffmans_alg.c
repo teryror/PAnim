@@ -183,19 +183,6 @@ int main(int argc, char *argv[]) {
     timeline_cursor = scene.length_in_frames + 30;
     add_code_words(&scene, huff, 0, 0);
     
-    // Go!
-    panim_scene_finalize(&scene);
-    
-    if (argc == 1) {
-        panim_scene_play(&pnm, &scene);
-        return 0;
-    } else if (argc != 2) {
-        printf("Usage: panim <OutFile>\n");
-        return 0;
-    }
-    
-    char * filename = argv[1];
-    panim_scene_render(&pnm, &scene, filename);
-    
-    return 0;
+    // Hand off to PAnim
+    return panim_main(argc, argv, &pnm, &scene);
 }

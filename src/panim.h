@@ -807,3 +807,22 @@ panim_scene_play(PAnimEngine * pnm, PAnimScene * scene)
     
     end: panim_engine_end_preview(pnm);
 }
+
+static int
+panim_main(int arg_count, char * arg_values[],
+           PAnimEngine * pnm, PAnimScene * scene)
+{
+    panim_scene_finalize(scene);
+    if (arg_count == 1) {
+        panim_scene_play(pnm, scene);
+        return 0;
+    } else if (arg_count != 2) {
+        printf("Usage: %s <OutFile>\n", arg_values[0]);
+        return 0;
+    }
+    
+    char * filename = arg_values[1];
+    panim_scene_render(pnm, scene, filename);
+    
+    return 0;
+}
