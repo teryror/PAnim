@@ -1,0 +1,34 @@
+Natural Selection and Evolutionary Algorithms:
+- give a brief overview of biological evolution
+  -> there exists a population of organisms
+  -> organisms reproduce (CAVEAT: reproduction is imperfect; generally,
+     you won't get an exact copy, some characteristics will vary randomly)
+  -> organisms eventually die (CAVEAT: some die faster than others,
+     depending on how well-adapted they are to their environment)
+- evolution is the emergent behaviour of this system
+  -> as time goes on, the population of organisms is optimized for adaption
+     to the environment
+- this effect has been observed and was already well understood relatively
+  long ago, and has been shown to generalize => evolutionary algorithms
+  -> show samples of a function f(x,y), and animate a genetic algorithm
+     that finds a maximum (show the function as a color-coded image,
+     optimize a population of 2D points in the appropriate color)
+  -> point out that this can also be used to find good neural network topologies,
+     and that generative adversarial networks build on a similar idea
+- note that others have also tried to use this effect:
+  -> free market economy optimizes a population of companiees for maximum profitability
+  -> social darwinism (or, more generally, meritocracy) tries to apply it to human
+     society
+- guiding question: how can biological evolution lead to general intelligence?
+  -> sheer complexity of the domain of organisms; the capability to achieve general
+     intelligence is inherent to the system being optimized
+- point out the prevalence of reward hacking:
+  -> humans interfering with the evolution of other species directly (from dogbreeds
+     to GMOs) and indirectly (building cities, polluting the environment) has drastically
+     affected biodiversity
+  -> companies optimizing for profit eventually form monopolies, and get into a position
+     where they can crush competition before it becomes a danger to themselves, and become
+     powerful enough to affect politics, allowing them to modify laws to suit themselves
+  => note the feedback loop: this comes down to the population being part of the environment
+     that determines who gets to 'reproduce', and who has to 'die off'
+- final point: stress the relevance of AI safety research in political science, and vice-versa
